@@ -25,13 +25,13 @@ import sys
 from pathlib import Path
 
 
-def convert_banking77_to_arxiv_format(input_file, output_file):
+def convert_banking77_to_dict_format(input_file, output_file):
     """
-    Convert banking77 format to arxiv_abstract format.
+    Convert banking77 format to dict format.
     
     Args:
         input_file: Path to input banking77 JSONL file
-        output_file: Path to output arxiv_abstract JSONL file
+        output_file: Path to output dict JSONL file
     """
     input_path = Path(input_file)
     output_path = Path(output_file)
@@ -95,8 +95,9 @@ def convert_banking77_to_arxiv_format(input_file, output_file):
                 output_data = {
                     "content": {
                         "request": request,
-                        "response": response
-                    }
+                    },
+                    "metadata": {"label": response}
+
                 }
                 
                 # Write to output file
@@ -122,5 +123,5 @@ if __name__ == "__main__":
     input_file = sys.argv[1]
     output_file = sys.argv[2]
     
-    convert_banking77_to_arxiv_format(input_file, output_file)
+    convert_banking77_to_dict_format(input_file, output_file)
 
