@@ -1,0 +1,20 @@
+# Native Inference config for Qwen3-4B-Instruct-2507 (Banking77 Classification).
+# Use this for local testing when vLLM is not available.
+#
+# Usage:
+#   oumi infer -c notebooks/4b_instruct_native_infer.yaml --input_path notebooks/test.jsonl --output_path notebooks/output.jsonl
+
+model:
+  model_name: "Qwen/Qwen3-4B-Instruct-2507"
+  model_max_length: 32768
+  torch_dtype_str: "bfloat16"
+  attn_implementation: "sdpa"
+  trust_remote_code: True
+
+generation:
+  max_new_tokens: 10  # Enough for a label id
+  temperature: 0.0  # Deterministic for classification
+  use_sampling: False  # Deterministic
+
+engine: NATIVE
+

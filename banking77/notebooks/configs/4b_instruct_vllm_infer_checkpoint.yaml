@@ -1,0 +1,27 @@
+# vLLM Inference config for Qwen3-4B-Instruct-2507 with LoRA checkpoint
+#
+# This config loads a fine-tuned LoRA checkpoint for inference
+# The checkpoint path should be passed via command line: --model.model_name=/path/to/checkpoint
+#
+# Usage:
+#   oumi infer -c configs/4b_instruct_vllm_infer_checkpoint.yaml \
+#              --model.model_name=/path/to/checkpoint \
+#              --input_path test.jsonl \
+#              --output_path results.jsonl
+
+model:
+  # NOTE: model_name will be overridden via command line to point to checkpoint
+  # For LoRA checkpoints, oumi should automatically detect and load the adapter
+  model_name: "REQUIRED_VIA_SCRIPT"  # Overridden by --model.model_name
+  model_max_length: 32768
+  torch_dtype_str: "bfloat16"
+  attn_implementation: "sdpa"
+  trust_remote_code: True
+
+generation:
+  max_new_tokens: 10  # Enough for a label id
+  temperature: 0.0  # Deterministic for classification
+  use_sampling: False  # Deterministic
+
+engine: VLLM
+
