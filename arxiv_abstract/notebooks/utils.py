@@ -5,6 +5,7 @@ import sys
 import json
 import re
 import textwrap
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from IPython.display import display, HTML
 import openai
 
@@ -223,6 +224,79 @@ def evaluate_summary(messages, model="gpt-4o", temperature=1.0, return_full=Fals
         result['full_response'] = full_response
     
     return result, evaluation_prompt
+
+
+def evaluate_summaries_batch(conversations, model="gpt-4o", temperature=1.0, max_workers=5, 
+                              return_full=False, client_instance=None, show_progress=True):
+    """
+    Evaluate multiple summaries in parallel using batch processing.
+    
+    Args:
+        conversations: List of conversation message lists (each is a list of message dicts)
+        model: OpenAI model to use (default: "gpt-4o")
+        temperature: Temperature for the API call (default: 1.0)
+        max_workers: Maximum number of parallel workers (default: 5)
+        return_full: If True, return full response dict; if False, return just judgment and explanation
+        client_instance: Optional OpenAI client instance (uses module-level client if not provided)
+        show_progress: If True, print progress updates (default: True)
+    
+    Returns:
+        List of tuples: (index, result_dict, evaluation_prompt) for each conversation
+        Results are returned in the order they complete (may not match input order)
+        If you need results in input order, sort by index after receiving results.
+    """
+    if client_instance is None:
+        client_instance = client
+    
+    results = []
+    errors = []
+    
+    def evaluate_single(idx, conv):
+        """Evaluate a single conversation and return index with result."""
+        try:
+            result, prompt = evaluate_summary(
+                conv, 
+                model=model, 
+                temperature=temperature, 
+                return_full=return_full,
+                client_instance=client_instance
+            )
+            return (idx, result, prompt, None)
+        except Exception as e:
+            return (idx, None, None, str(e))
+    
+    # Process in parallel
+    if show_progress:
+        print(f"Evaluating {len(conversations)} conversations with {max_workers} workers...")
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all tasks
+        future_to_idx = {
+            executor.submit(evaluate_single, idx, conv): idx 
+            for idx, conv in enumerate(conversations)
+        }
+        
+        # Collect results as they complete
+        completed = 0
+        for future in as_completed(future_to_idx):
+            idx, result, prompt, error = future.result()
+            if error:
+                errors.append((idx, error))
+                if show_progress:
+                    print(f"  Error on conversation {idx}: {error}")
+            else:
+                results.append((idx, result, prompt))
+                completed += 1
+                if show_progress:
+                    print(f"  Completed {completed}/{len(conversations)}")
+    
+    if show_progress:
+        print(f"\n✓ Completed: {len(results)} successful, {len(errors)} errors")
+    
+    # Sort results by index to maintain input order
+    results.sort(key=lambda x: x[0])
+    
+    return results, errors
 
 
 def display_text(text, role=None, max_width=80, max_chars=None, show_stats=True):
