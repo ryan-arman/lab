@@ -1,0 +1,30 @@
+# vLLM Inference config for Qwen3-4B-Instruct-2507 with LoRA checkpoint (Arxiv Abstract Summarization)
+#
+# This config loads a fine-tuned LoRA checkpoint for inference
+# The adapter path should be passed via command line: --model.adapter_model=/path/to/checkpoint
+#
+# Usage:
+#   oumi infer -c configs/4b_instruct_vllm_infer_checkpoint.yaml \
+#              --model.adapter_model=/path/to/checkpoint \
+#              --input_path test.jsonl \
+#              --output_path results.jsonl
+#
+# Or via submit script:
+#   ./submit_inference_rsync.sh data/test.jsonl configs/4b_instruct_vllm_infer_checkpoint.yaml results output/arxiv_abstract_qwen3_4b_lora_2799
+
+model:
+  model_name: "Qwen/Qwen3-4B-Instruct-2507"  # Base model (LoRA adapter loaded separately)
+  model_max_length: 16384  # Match training config to avoid OOM
+  torch_dtype_str: "bfloat16"
+  attn_implementation: "sdpa"
+  trust_remote_code: True
+  # NOTE: adapter_model will be set via command line or environment variable
+  # adapter_model: null  # Overridden by --model.adapter_model or CHECKPOINT_PATH env var
+
+generation:
+  max_new_tokens: 16000  # Enough for long summaries
+  temperature: 1.0  # Natural sampling for summaries
+  use_sampling: True  # Enable sampling for diverse summaries
+
+engine: VLLM
+
