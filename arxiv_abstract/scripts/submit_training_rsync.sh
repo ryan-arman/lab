@@ -22,8 +22,8 @@
 set -e
 
 # Parse arguments (use empty string check to allow passing "" for defaults)
-TRAIN_DATASET="${1:-data/arxiv_summarization_train_instruct.jsonl}"
-VAL_DATASET="${2:-data/arxiv_summarization_val_instruct.jsonl}"
+TRAIN_DATASET="${1:-data/arxiv_summarization_train_instruct_cleaned.jsonl}"
+VAL_DATASET="${2:-data/arxiv_summarization_val_instruct_cleaned.jsonl}"
 CONFIG_FILE="${3:-configs/qwen4b_train_lora.yaml}"
 OUTPUT_NAME="${4:-arxiv_abstract_qwen3_4b_lora}"
 CLUSTER_HOST="${5:-ryan@exun}"

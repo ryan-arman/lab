@@ -9,6 +9,38 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from IPython.display import display, HTML
 import openai
 
+# Try to import tqdm for progress bars, with fallback if not available
+try:
+    from tqdm import tqdm
+except ImportError:
+    # Fallback: create a simple tqdm-like class that does nothing
+    class tqdm:
+        def __init__(self, iterable=None, total=None, desc=None, **kwargs):
+            self.iterable = iterable
+            self.total = total
+            self.desc = desc
+            self.n = 0
+        
+        def __iter__(self):
+            return iter(self.iterable) if self.iterable else self
+        
+        def __next__(self):
+            if self.iterable:
+                return next(self.iterable)
+            raise StopIteration
+        
+        def update(self, n=1):
+            self.n += n
+        
+        def close(self):
+            pass
+        
+        def __enter__(self):
+            return self
+        
+        def __exit__(self, *args):
+            self.close()
+
 # Judge system instruction (matches API server structure)
 JUDGE_SYSTEM_INSTRUCTION = """You are an expert academic reviewer evaluating whether a summary of an arXiv paper is of good quality, according to the five dimensions below.
 
@@ -289,6 +321,126 @@ def evaluate_summaries_batch(conversations, model="gpt-4o", temperature=1.0, max
                 completed += 1
                 if show_progress:
                     print(f"  Completed {completed}/{len(conversations)}")
+    
+    if show_progress:
+        print(f"\n✓ Completed: {len(results)} successful, {len(errors)} errors")
+    
+    # Sort results by index to maintain input order
+    results.sort(key=lambda x: x[0])
+    
+    return results, errors
+
+
+def generate_abstract(messages, model="gpt-4o", temperature=0.7, client_instance=None):
+    """
+    Generate an abstract for a paper using OpenAI API.
+    
+    Args:
+        messages: List of message dicts with 'role' and 'content' keys.
+                 Expected format: [{'role': 'system', 'content': '...'}, {'role': 'user', 'content': '...'}]
+                 The system message should contain instructions, user message should contain paper content.
+        model: OpenAI model to use (default: "gpt-4o", can use "gpt-4o", "o1-preview", etc.)
+        temperature: Temperature for the API call (default: 0.7)
+        client_instance: Optional OpenAI client instance (uses module-level client if not provided)
+    
+    Returns:
+        dict with 'abstract' (str) and 'full_response' (OpenAI response object)
+    """
+    if client_instance is None:
+        client_instance = client
+    
+    # Call OpenAI to generate abstract
+    response = client_instance.chat.completions.create(
+        model=model,
+        messages=messages,
+        temperature=temperature
+    )
+    
+    full_response = response
+    abstract = response.choices[0].message.content
+    
+    return {
+        'abstract': abstract,
+        'full_response': full_response
+    }
+
+
+def generate_abstracts_batch(conversations, model="gpt-4o", temperature=0.7, max_workers=5,
+                            client_instance=None, show_progress=True):
+    """
+    Generate abstracts for multiple papers in parallel using batch processing.
+    
+    Args:
+        conversations: List of conversation message lists (each is a list of message dicts)
+                      Each conversation should have 'system' and 'user' messages (no 'assistant' message)
+        model: OpenAI model to use (default: "gpt-4o")
+        temperature: Temperature for the API call (default: 0.7)
+        max_workers: Maximum number of parallel workers (default: 5)
+        client_instance: Optional OpenAI client instance (uses module-level client if not provided)
+        show_progress: If True, print progress updates (default: True)
+    
+    Returns:
+        List of tuples: (index, result_dict, error) for each conversation
+        Results are returned in the order they complete (may not match input order)
+        If you need results in input order, sort by index after receiving results.
+    """
+    if client_instance is None:
+        client_instance = client
+    
+    results = []
+    errors = []
+    
+    def generate_single(idx, conv):
+        """Generate abstract for a single conversation and return index with result."""
+        try:
+            result = generate_abstract(
+                conv,
+                model=model,
+                temperature=temperature,
+                client_instance=client_instance
+            )
+            return (idx, result, None)
+        except Exception as e:
+            return (idx, None, str(e))
+    
+    # Process in parallel
+    if show_progress:
+        print(f"Generating abstracts for {len(conversations)} papers with {max_workers} workers...")
+        print(f"Using model: {model}")
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all tasks
+        future_to_idx = {
+            executor.submit(generate_single, idx, conv): idx 
+            for idx, conv in enumerate(conversations)
+        }
+        
+        # Collect results as they complete with progress bar
+        completed = 0
+        pbar = None
+        if show_progress:
+            pbar = tqdm(total=len(conversations), desc="Generating abstracts", unit="abstract")
+        
+        try:
+            for future in as_completed(future_to_idx):
+                idx, result, error = future.result()
+                if error:
+                    errors.append((idx, error))
+                    if show_progress and pbar:
+                        pbar.write(f"  Error on conversation {idx}: {error}")
+                else:
+                    results.append((idx, result))
+                    completed += 1
+                
+                if pbar:
+                    pbar.update(1)
+                    pbar.set_postfix({
+                        'success': len(results),
+                        'errors': len(errors)
+                    })
+        finally:
+            if pbar:
+                pbar.close()
     
     if show_progress:
         print(f"\n✓ Completed: {len(results)} successful, {len(errors)} errors")
