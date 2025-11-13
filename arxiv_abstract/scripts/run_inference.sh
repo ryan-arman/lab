@@ -1,16 +1,16 @@
 #!/bin/bash
 
-#SBATCH --job-name=banking77_inference_qwen3_4b
+#SBATCH --job-name=arxiv_abstract_inference_qwen3_4b
 #SBATCH --gres=gpu:1
-#SBATCH --output=/home/ryan/code/oumi/lab/banking77/notebooks/logs/banking77_inference_qwen3_4b_%j.log
-#SBATCH --error=/home/ryan/code/oumi/lab/banking77/notebooks/logs/banking77_inference_qwen3_4b_%j.err
+#SBATCH --output=/home/ryan/code/oumi/lab/arxiv_abstract/logs/arxiv_abstract_inference_qwen3_4b_%j.log
+#SBATCH --error=/home/ryan/code/oumi/lab/arxiv_abstract/logs/arxiv_abstract_inference_qwen3_4b_%j.err
 #SBATCH --time=04:00:00
 #SBATCH --mem=100G
 
-# Example sbatch script for Banking77 classification inference
-# Generated from: notebooks/4b_instruct_vllm_infer.yaml
+# Example sbatch script for Arxiv Abstract Summarization inference
+# Generated from: configs/4b_instruct_vllm_infer.yaml
 #
-# This script runs inference on the Banking77 dataset using Qwen3-4B-Instruct-2507
+# This script runs inference on the Arxiv Abstract Summarization dataset using Qwen3-4B-Instruct-2507
 
 # Initialize conda and activate environment
 # Try common conda initialization paths
@@ -28,20 +28,20 @@ conda activate oumi
 cd /home/ryan/code/oumi
 
 echo "======================================"
-echo "Starting Banking77 Inference"
+echo "Starting Arxiv Abstract Inference"
 echo "======================================"
-echo "Job Name: banking77_inference_qwen3_4b"
+echo "Job Name: arxiv_abstract_inference_qwen3_4b"
 echo "GPUs: 1"
-echo "Log: /home/ryan/code/oumi/lab/banking77/notebooks/logs/banking77_inference_qwen3_4b_$SLURM_JOB_ID.log"
+echo "Log: /home/ryan/code/oumi/lab/arxiv_abstract/logs/arxiv_abstract_inference_qwen3_4b_$SLURM_JOB_ID.log"
 echo "======================================"
 
 # Set paths (adjust these to match your cluster's file system)
 # These can be overridden via environment variables when submitting:
 #   sbatch --export=CONFIG_FILE=...,INPUT_PATH=...,OUTPUT_NAME=...,CHECKPOINT_PATH=... run_inference.sh
-CONFIG_FILE="${CONFIG_FILE:-/home/ryan/code/oumi/lab/banking77/notebooks/configs/4b_instruct_vllm_infer.yaml}"
-INPUT_PATH="${INPUT_PATH:-/home/ryan/code/oumi/lab/banking77/notebooks/data/test.jsonl}"
+CONFIG_FILE="${CONFIG_FILE:-/home/ryan/code/oumi/lab/arxiv_abstract/configs/4b_instruct_vllm_infer.yaml}"
+INPUT_PATH="${INPUT_PATH:-/home/ryan/code/oumi/lab/arxiv_abstract/data/arxiv_summarization_test_instruct.jsonl}"
 OUTPUT_NAME="${OUTPUT_NAME:-output}"
-OUTPUT_PATH="${OUTPUT_PATH:-/home/ryan/code/oumi/lab/banking77/notebooks/data/${OUTPUT_NAME}_${SLURM_JOB_ID}.jsonl}"
+OUTPUT_PATH="${OUTPUT_PATH:-/home/ryan/code/oumi/lab/arxiv_abstract/data/${OUTPUT_NAME}_${SLURM_JOB_ID}.jsonl}"
 CHECKPOINT_PATH="${CHECKPOINT_PATH:-}"  # Optional: path to LoRA adapter checkpoint directory
 
 echo "Config file: ${CONFIG_FILE}"
