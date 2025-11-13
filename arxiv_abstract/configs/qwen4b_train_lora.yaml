@@ -25,9 +25,8 @@ training:
   run_name: "REQUIRED_VIA_SCRIPT"  # Overridden by --training.run_name
   num_train_epochs: 1
   per_device_train_batch_size: 1
-  per_device_eval_batch_size: 1  # Explicit eval batch size
+  per_device_eval_batch_size: 1  # Explicit eval batch size to reduce memory during evaluation
   gradient_accumulation_steps: 2
-  eval_accumulation_steps: 4  # Process eval in smaller chunks to reduce memory
   # Adjusted for 8 GPUs: batch_size=1, grad_accum=2 → effective batch=16 (same as 1 GPU)
   # This ensures same number of steps (~500) and same training dynamics
   learning_rate: 5.0e-06
