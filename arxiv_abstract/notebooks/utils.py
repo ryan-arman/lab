@@ -118,7 +118,7 @@ def get_openai_client():
 client = get_openai_client()
 
 
-def evaluate_summary(messages, model="gpt-4o", temperature=0, return_full=False, client_instance=None):
+def evaluate_summary(messages, model="gpt-4o", temperature=1.0, return_full=False, client_instance=None):
     """
     Evaluate a summary using the judge prompt.
     
