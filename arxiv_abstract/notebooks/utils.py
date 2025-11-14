@@ -394,16 +394,31 @@ def generate_abstract_and_article(messages, model="gpt-4o", temperature=0.7, cli
     content = response.choices[0].message.content
     
     # Parse the response to extract abstract and article
-    # Expected format: "ABSTRACT:\n...\n\nARTICLE:\n..."
+    # Handle both formats:
+    # 1. "ARTICLE:\n...\n\nABSTRACT:\n..." (new format - article first)
+    # 2. "ABSTRACT:\n...\n\nARTICLE:\n..." (old format - abstract first)
     abstract = ""
     article = ""
     
     if "ABSTRACT:" in content and "ARTICLE:" in content:
-        parts = content.split("ARTICLE:", 1)
-        abstract = parts[0].replace("ABSTRACT:", "").strip()
-        article = parts[1].strip()
+        # Determine which comes first
+        abstract_pos = content.find("ABSTRACT:")
+        article_pos = content.find("ARTICLE:")
+        
+        if article_pos < abstract_pos:
+            # ARTICLE comes first (new format)
+            parts = content.split("ABSTRACT:", 1)
+            article = parts[0].replace("ARTICLE:", "").strip()
+            abstract = parts[1].strip()
+        else:
+            # ABSTRACT comes first (old format)
+            parts = content.split("ARTICLE:", 1)
+            abstract = parts[0].replace("ABSTRACT:", "").strip()
+            article = parts[1].strip()
     elif "ABSTRACT:" in content:
         abstract = content.split("ABSTRACT:", 1)[1].strip()
+    elif "ARTICLE:" in content:
+        article = content.split("ARTICLE:", 1)[1].strip()
     else:
         # If no clear separator, assume the entire response is the abstract
         # and there's no article (fallback)

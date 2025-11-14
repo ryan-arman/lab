@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #SBATCH --job-name=arxiv_abstract_inference_qwen3_4b
-#SBATCH --gres=gpu:4
+#SBATCH --gres=gpu:8
 #SBATCH --cpus-per-gpu=10
 #SBATCH --mem-per-gpu=128G
 #SBATCH --output=/home/ryan/code/oumi/lab/arxiv_abstract/logs/arxiv_abstract_inference_qwen3_4b_%j.log
@@ -72,10 +72,61 @@ if [ -f "${INPUT_PATH}" ]; then
     # Run batch inference
     # If checkpoint (adapter path) is provided, load base model with LoRA adapter
     if [ -n "${CHECKPOINT_PATH}" ]; then
-        echo "Loading base model with LoRA adapter from: ${CHECKPOINT_PATH}"
+        # Check if adapter_config.json exists in the provided path
+        # If not, try checking in output/ subdirectory, then look for checkpoint subdirectories
+        ADAPTER_PATH=""
+        CLUSTER_BASE_DIR="/home/ryan/code/oumi/lab/arxiv_abstract"
+        
+        # Function to find adapter path
+        find_adapter_path() {
+            local test_path="$1"
+            # Check if adapter_config.json exists directly in the path
+            if [ -f "${test_path}/adapter_config.json" ]; then
+                echo "${test_path}"
+                return 0
+            fi
+            # Check in checkpoint subdirectories
+            if [ -d "${test_path}" ]; then
+                local latest_checkpoint=$(find "${test_path}" -maxdepth 1 -type d -name "checkpoint-*" 2>/dev/null | sort -V | tail -n 1)
+                if [ -n "${latest_checkpoint}" ] && [ -f "${latest_checkpoint}/adapter_config.json" ]; then
+                    echo "${latest_checkpoint}"
+                    return 0
+                fi
+            fi
+            return 1
+        }
+        
+        # Try the provided path first
+        if ADAPTER_PATH=$(find_adapter_path "${CHECKPOINT_PATH}" 2>/dev/null); then
+            if [ "${ADAPTER_PATH}" != "${CHECKPOINT_PATH}" ]; then
+                echo "Found adapter in checkpoint subdirectory: ${ADAPTER_PATH}"
+            fi
+        else
+            # Try in output/ subdirectory (training saves to output/NAME_JOBID)
+            # Extract just the directory name from the path
+            CHECKPOINT_DIRNAME=$(basename "${CHECKPOINT_PATH}")
+            OUTPUT_SUBDIR="${CLUSTER_BASE_DIR}/output/${CHECKPOINT_DIRNAME}"
+            if [ -d "${OUTPUT_SUBDIR}" ]; then
+                echo "adapter_config.json not found in ${CHECKPOINT_PATH}, checking output subdirectory: ${OUTPUT_SUBDIR}"
+                if ADAPTER_PATH=$(find_adapter_path "${OUTPUT_SUBDIR}" 2>/dev/null); then
+                    echo "Found adapter in: ${ADAPTER_PATH}"
+                else
+                    echo "Error: Could not find adapter_config.json in:"
+                    echo "  - ${CHECKPOINT_PATH}"
+                    echo "  - ${OUTPUT_SUBDIR}"
+                    echo "  - or any checkpoint subdirectories"
+                    exit 1
+                fi
+            else
+                echo "Error: Could not find adapter_config.json in ${CHECKPOINT_PATH} or any checkpoint subdirectories"
+                echo "Also checked: ${OUTPUT_SUBDIR} (directory not found)"
+                exit 1
+            fi
+        fi
+        echo "Loading base model with LoRA adapter from: ${ADAPTER_PATH}"
         oumi infer \
             -c "${CONFIG_FILE}" \
-            --model.adapter_model="${CHECKPOINT_PATH}" \
+            --model.adapter_model="${ADAPTER_PATH}" \
             --input_path "${INPUT_PATH}" \
             --output_path "${OUTPUT_PATH}"
     else
