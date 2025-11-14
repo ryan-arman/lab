@@ -365,6 +365,57 @@ def generate_abstract(messages, model="gpt-4o", temperature=0.7, client_instance
     }
 
 
+def generate_abstract_and_article(messages, model="gpt-4o", temperature=0.7, client_instance=None):
+    """
+    Generate both an abstract and a rewritten article for a paper using OpenAI API.
+    
+    Args:
+        messages: List of message dicts with 'role' and 'content' keys.
+                 Expected format: [{'role': 'system', 'content': '...'}, {'role': 'user', 'content': '...'}]
+                 The system message should contain instructions, user message should contain paper content.
+        model: OpenAI model to use (default: "gpt-4o", can use "gpt-4o", "o1-preview", etc.)
+        temperature: Temperature for the API call (default: 0.7)
+        client_instance: Optional OpenAI client instance (uses module-level client if not provided)
+    
+    Returns:
+        dict with 'abstract' (str), 'article' (str), and 'full_response' (OpenAI response object)
+    """
+    if client_instance is None:
+        client_instance = client
+    
+    # Call OpenAI to generate abstract and article
+    response = client_instance.chat.completions.create(
+        model=model,
+        messages=messages,
+        temperature=temperature
+    )
+    
+    full_response = response
+    content = response.choices[0].message.content
+    
+    # Parse the response to extract abstract and article
+    # Expected format: "ABSTRACT:\n...\n\nARTICLE:\n..."
+    abstract = ""
+    article = ""
+    
+    if "ABSTRACT:" in content and "ARTICLE:" in content:
+        parts = content.split("ARTICLE:", 1)
+        abstract = parts[0].replace("ABSTRACT:", "").strip()
+        article = parts[1].strip()
+    elif "ABSTRACT:" in content:
+        abstract = content.split("ABSTRACT:", 1)[1].strip()
+    else:
+        # If no clear separator, assume the entire response is the abstract
+        # and there's no article (fallback)
+        abstract = content.strip()
+    
+    return {
+        'abstract': abstract,
+        'article': article,
+        'full_response': full_response
+    }
+
+
 def generate_abstracts_batch(conversations, model="gpt-4o", temperature=0.7, max_workers=5,
                             client_instance=None, show_progress=True):
     """
@@ -420,6 +471,92 @@ def generate_abstracts_batch(conversations, model="gpt-4o", temperature=0.7, max
         pbar = None
         if show_progress:
             pbar = tqdm(total=len(conversations), desc="Generating abstracts", unit="abstract")
+        
+        try:
+            for future in as_completed(future_to_idx):
+                idx, result, error = future.result()
+                if error:
+                    errors.append((idx, error))
+                    if show_progress and pbar:
+                        pbar.write(f"  Error on conversation {idx}: {error}")
+                else:
+                    results.append((idx, result))
+                    completed += 1
+                
+                if pbar:
+                    pbar.update(1)
+                    pbar.set_postfix({
+                        'success': len(results),
+                        'errors': len(errors)
+                    })
+        finally:
+            if pbar:
+                pbar.close()
+    
+    if show_progress:
+        print(f"\n✓ Completed: {len(results)} successful, {len(errors)} errors")
+    
+    # Sort results by index to maintain input order
+    results.sort(key=lambda x: x[0])
+    
+    return results, errors
+
+
+def generate_abstracts_and_articles_batch(conversations, model="gpt-4o", temperature=0.7, max_workers=5,
+                                          client_instance=None, show_progress=True):
+    """
+    Generate both abstracts and rewritten articles for multiple papers in parallel using batch processing.
+    
+    Args:
+        conversations: List of conversation message lists (each is a list of message dicts)
+                      Each conversation should have 'system' and 'user' messages (no 'assistant' message)
+        model: OpenAI model to use (default: "gpt-4o")
+        temperature: Temperature for the API call (default: 0.7)
+        max_workers: Maximum number of parallel workers (default: 5)
+        client_instance: Optional OpenAI client instance (uses module-level client if not provided)
+        show_progress: If True, print progress updates (default: True)
+    
+    Returns:
+        List of tuples: (index, result_dict, error) for each conversation
+        Results are returned in the order they complete (may not match input order)
+        If you need results in input order, sort by index after receiving results.
+    """
+    if client_instance is None:
+        client_instance = client
+    
+    results = []
+    errors = []
+    
+    def generate_single(idx, conv):
+        """Generate abstract and article for a single conversation and return index with result."""
+        try:
+            result = generate_abstract_and_article(
+                conv,
+                model=model,
+                temperature=temperature,
+                client_instance=client_instance
+            )
+            return (idx, result, None)
+        except Exception as e:
+            return (idx, None, str(e))
+    
+    # Process in parallel
+    if show_progress:
+        print(f"Generating abstracts and articles for {len(conversations)} papers with {max_workers} workers...")
+        print(f"Using model: {model}")
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all tasks
+        future_to_idx = {
+            executor.submit(generate_single, idx, conv): idx 
+            for idx, conv in enumerate(conversations)
+        }
+        
+        # Collect results as they complete with progress bar
+        completed = 0
+        pbar = None
+        if show_progress:
+            pbar = tqdm(total=len(conversations), desc="Generating abstracts and articles", unit="paper")
         
         try:
             for future in as_completed(future_to_idx):

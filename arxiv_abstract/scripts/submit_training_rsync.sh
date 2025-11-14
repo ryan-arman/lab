@@ -2,7 +2,7 @@
 
 # Script to copy files to cluster using rsync and submit training job
 # More efficient for large files like training datasets
-# Usage: ./submit_training_rsync.sh [train_dataset] [val_dataset] [config_file] [output_name] [cluster_host] [wandb_project] [wandb_entity]
+# Usage: ./submit_training_rsync.sh [train_dataset] [val_dataset] [config_file] [output_name] [cluster_host] [wandb_project] [wandb_entity] [wandb_run_name]
 # 
 # Examples:
 #   ./submit_training_rsync.sh                                    # Use defaults
@@ -10,23 +10,28 @@
 #   ./submit_training_rsync.sh "" "" "" "" "" my-custom-project  # Pass only wandb project (use "" for defaults)
 #   ./submit_training_rsync.sh data/arxiv_summarization_train_instruct.jsonl data/arxiv_summarization_val_instruct.jsonl configs/qwen4b_train_lora.yaml my_training ryan@exun arxiv-abstract-qwen3-4b
 #   ./submit_training_rsync.sh data/arxiv_summarization_train_instruct.jsonl data/arxiv_summarization_val_instruct.jsonl configs/qwen4b_train_lora.yaml my_training ryan@exun arxiv-abstract-qwen3-4b my-team
+#   ./submit_training_rsync.sh ... ... ... ... ... ... ... "my-custom-run-name"  # Custom wandb run name
 #
 # Wandb Configuration:
 #   - Set WANDB_API_KEY in your environment: export WANDB_API_KEY=your_key_here
 #   - Or set it on the cluster: ssh ryan@exun 'echo "export WANDB_API_KEY=your_key" >> ~/.bashrc'
 #   - Wandb project can be passed as argument 6, or set via WANDB_PROJECT environment variable
 #   - Wandb entity (team) can be passed as argument 7, or set via WANDB_ENTITY environment variable
+#   - Wandb run name can be passed as argument 8, or set via RUN_NAME environment variable
+#     If not provided, defaults to ${OUTPUT_NAME}_${SLURM_JOB_ID}
 #   - IMPORTANT: If you get permission errors (403), the entity might not exist or you don't have access
 #     Leave entity empty (pass "" as argument 7) to use your personal account instead
 
 set -e
 
 # Parse arguments (use empty string check to allow passing "" for defaults)
-TRAIN_DATASET="${1:-data/arxiv_summarization_train_instruct_cleaned.jsonl}"
-VAL_DATASET="${2:-data/arxiv_summarization_val_instruct_cleaned.jsonl}"
+TRAIN_DATASET="${1:-data/arxiv_summarization_train_instruct_article_gpt5.jsonl}" 
+VAL_DATASET="${2:-data/arxiv_summarization_val_instruct_article_gpt5.jsonl}"
 CONFIG_FILE="${3:-configs/qwen4b_train_lora.yaml}"
-OUTPUT_NAME="${4:-arxiv_abstract_qwen3_4b_lora}"
+OUTPUT_NAME="${4:-arxiv_abstract_qwen3_4b_gpt5_article_lora_fixed}"
 CLUSTER_HOST="${5:-ryan@exun}"
+# Set default RUN_NAME based on OUTPUT_NAME (will be overridden by argument 8 if provided)
+RUN_NAME="${RUN_NAME:-${OUTPUT_NAME}}"
 # For wandb_project, check if argument 6 was explicitly provided (even if empty)
 if [ $# -ge 6 ]; then
     WANDB_PROJECT="${6:-${WANDB_PROJECT:-arxiv-abstract}}"
@@ -39,6 +44,12 @@ if [ $# -ge 7 ]; then
     WANDB_ENTITY="${7:-${WANDB_ENTITY:-}}"
 else
     WANDB_ENTITY="${WANDB_ENTITY:-}"
+fi
+# For wandb_run_name (RUN_NAME), check if argument 8 was explicitly provided
+# If provided, override the default set above
+# If not provided, will use the default (OUTPUT_NAME) which will become OUTPUT_NAME_SLURM_JOB_ID in run_training.sh
+if [ $# -ge 8 ]; then
+    RUN_NAME="${8}"
 fi
 
 # Configuration - adjust these for your cluster
@@ -79,6 +90,11 @@ if [ -n "${WANDB_ENTITY}" ]; then
     echo "   If you get permission errors, leave entity empty to use your personal account."
 else
     echo "Wandb entity: (using personal account)"
+fi
+if [ -n "${RUN_NAME}" ]; then
+    echo "Wandb run name: ${RUN_NAME}"
+else
+    echo "Wandb run name: (will use default: ${OUTPUT_NAME}_<SLURM_JOB_ID>)"
 fi
 if [ -n "${WANDB_API_KEY:-}" ]; then
     echo "Wandb API key: Found in local environment (will be passed to cluster)"
@@ -127,6 +143,9 @@ echo "Submitting SLURM job..."
 EXPORT_VARS="CONFIG_FILE=${CLUSTER_BASE_DIR}/${CONFIG_FILENAME},TRAIN_DATASET=${CLUSTER_BASE_DIR}/${TRAIN_FILENAME},VAL_DATASET=${CLUSTER_BASE_DIR}/${VAL_FILENAME},OUTPUT_NAME=${OUTPUT_NAME},WANDB_PROJECT=${WANDB_PROJECT}"
 if [ -n "${WANDB_ENTITY}" ]; then
     EXPORT_VARS="${EXPORT_VARS},WANDB_ENTITY=${WANDB_ENTITY}"
+fi
+if [ -n "${RUN_NAME}" ]; then
+    EXPORT_VARS="${EXPORT_VARS},RUN_NAME=${RUN_NAME}"
 fi
 # Pass WANDB_API_KEY from local environment to remote job
 if [ -n "${WANDB_API_KEY:-}" ]; then

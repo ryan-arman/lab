@@ -1,11 +1,12 @@
 #!/bin/bash
 
 #SBATCH --job-name=arxiv_abstract_inference_qwen3_4b
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:4
+#SBATCH --cpus-per-gpu=10
+#SBATCH --mem-per-gpu=128G
 #SBATCH --output=/home/ryan/code/oumi/lab/arxiv_abstract/logs/arxiv_abstract_inference_qwen3_4b_%j.log
 #SBATCH --error=/home/ryan/code/oumi/lab/arxiv_abstract/logs/arxiv_abstract_inference_qwen3_4b_%j.err
 #SBATCH --time=04:00:00
-#SBATCH --mem=100G
 
 # Example sbatch script for Arxiv Abstract Summarization inference
 # Generated from: configs/4b_instruct_vllm_infer.yaml

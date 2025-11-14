@@ -13,48 +13,70 @@ data:
     datasets:
     - dataset_name: text_sft
       dataset_path: REQUIRED_VIA_SCRIPT  # Overridden by --data.train.datasets.0.dataset_path
+    collator_name: "text_completions_only_with_padding"
+    collator_kwargs:
+      # Mark where the assistant's answer (abstract) starts
+      response_template: "<|im_start|>assistant\n"
+      # Mark where the user turn starts
+      instruction_template: "<|im_start|>user\n"
+    target_col: "messages"
+    seed: 42
+
   validation:
     datasets:
     - dataset_name: text_sft
       dataset_path: REQUIRED_VIA_SCRIPT  # Overridden by --data.validation.datasets.0.dataset_path
+    collator_name: "text_completions_only_with_padding"
+    collator_kwargs:
+      response_template: "<|im_start|>assistant\n"
+      instruction_template: "<|im_start|>user\n"
+    target_col: "messages"
+    seed: 42
+
 training:
   trainer_type: TRL_SFT
   # NOTE: output_dir and run_name will be overridden by submit_training_rsync.sh
   # to include the job ID (e.g., output/arxiv_abstract_qwen3_4b_lora_12345)
   output_dir: REQUIRED_VIA_SCRIPT  # Overridden by --training.output_dir
   run_name: "REQUIRED_VIA_SCRIPT"  # Overridden by --training.run_name
+  
   num_train_epochs: 1
+  
   per_device_train_batch_size: 1
   per_device_eval_batch_size: 1  # Explicit eval batch size to reduce memory during evaluation
   gradient_accumulation_steps: 2
   # Adjusted for 8 GPUs: batch_size=1, grad_accum=2 → effective batch=16 (same as 1 GPU)
   # This ensures same number of steps (~500) and same training dynamics
+  
   learning_rate: 5.0e-06
   lr_scheduler_type: cosine
   optimizer: adamw_torch_fused
   max_grad_norm: 1.0
+  
   enable_gradient_checkpointing: true
   gradient_checkpointing_kwargs:
     use_reentrant: false
+  
   save_steps: 100
   eval_steps: 100
   eval_strategy: "steps"
   logging_steps: 10
+  
   dataloader_num_workers: auto
   dataloader_prefetch_factor: 32
   empty_device_cache_steps: 50
   include_performance_metrics: true
+  
   enable_wandb: True
   enable_mlflow: True
+  
   use_peft: true
+
 peft:
-  lora_r: 64
-  lora_alpha: 128
+  lora_r: 8
+  lora_alpha: 16
+  lora_dropout: 0.05
   lora_target_modules:
-  - q_proj
-  - k_proj
-  - v_proj
-  - o_proj
-  - gate_proj
-  - up_proj
-  - down_proj
+    - q_proj
+    - v_proj
+    - o_proj
