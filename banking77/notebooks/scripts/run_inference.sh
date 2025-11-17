@@ -1,11 +1,12 @@
 #!/bin/bash
 
 #SBATCH --job-name=banking77_inference_qwen3_4b
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:8
+#SBATCH --cpus-per-gpu=10
+#SBATCH --mem-per-gpu=128G
 #SBATCH --output=/home/ryan/code/oumi/lab/banking77/notebooks/logs/banking77_inference_qwen3_4b_%j.log
 #SBATCH --error=/home/ryan/code/oumi/lab/banking77/notebooks/logs/banking77_inference_qwen3_4b_%j.err
 #SBATCH --time=04:00:00
-#SBATCH --mem=100G
 
 # Example sbatch script for Banking77 classification inference
 # Generated from: notebooks/4b_instruct_vllm_infer.yaml
@@ -39,7 +40,7 @@ echo "======================================"
 # These can be overridden via environment variables when submitting:
 #   sbatch --export=CONFIG_FILE=...,INPUT_PATH=...,OUTPUT_NAME=...,CHECKPOINT_PATH=... run_inference.sh
 CONFIG_FILE="${CONFIG_FILE:-/home/ryan/code/oumi/lab/banking77/notebooks/configs/4b_instruct_vllm_infer.yaml}"
-INPUT_PATH="${INPUT_PATH:-/home/ryan/code/oumi/lab/banking77/notebooks/data/test.jsonl}"
+INPUT_PATH="${INPUT_PATH:-/home/ryan/code/oumi/lab/banking77/notebooks/data/banking77_test.jsonl}"
 OUTPUT_NAME="${OUTPUT_NAME:-output}"
 OUTPUT_PATH="${OUTPUT_PATH:-/home/ryan/code/oumi/lab/banking77/notebooks/data/${OUTPUT_NAME}_${SLURM_JOB_ID}.jsonl}"
 CHECKPOINT_PATH="${CHECKPOINT_PATH:-}"  # Optional: path to LoRA adapter checkpoint directory

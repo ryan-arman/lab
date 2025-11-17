@@ -25,13 +25,13 @@ set -e
 TRAIN_DATASET="${1:-data/train.jsonl}"
 VAL_DATASET="${2:-data/validation.jsonl}"
 CONFIG_FILE="${3:-configs/qwen4b_train_lora.yaml}"
-OUTPUT_NAME="${4:-banking77_qwen3_4b_lora}"
+OUTPUT_NAME="${4:-banking77_qwen3_4b_lora_v2}"
 CLUSTER_HOST="${5:-ryan@exun}"
 # For wandb_project, check if argument 6 was explicitly provided (even if empty)
 if [ $# -ge 6 ]; then
-    WANDB_PROJECT="${6:-${WANDB_PROJECT:-banking77}}"
+    WANDB_PROJECT="${6:-${WANDB_PROJECT:-banking77_v2}}"
 else
-    WANDB_PROJECT="${WANDB_PROJECT:-banking77}"
+    WANDB_PROJECT="${WANDB_PROJECT:-banking77_v2}"
 fi
 # For wandb_entity, check if argument 7 was explicitly provided
 # If not provided, leave empty to use personal account (simpler, no permission issues)

@@ -14,7 +14,7 @@
 set -e
 
 # Parse arguments
-INPUT_FILE="${1:-data/test.jsonl}"
+INPUT_FILE="${1:-data/banking77_test.jsonl}"
 CONFIG_FILE="${2:-configs/4b_instruct_vllm_infer.yaml}"
 OUTPUT_NAME="${3:-output}"
 CHECKPOINT_PATH="${4:-}"  # Optional: path to LoRA adapter checkpoint directory (relative to cluster base dir)
@@ -26,10 +26,30 @@ LOCAL_BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # Resolve paths (handle both relative and absolute paths)
 if [[ "${INPUT_FILE}" != /* ]]; then
-    INPUT_FILE="${LOCAL_BASE_DIR}/${INPUT_FILE}"
+    # If path starts with .., resolve from current working directory
+    if [[ "${INPUT_FILE}" == ../* ]]; then
+        RESOLVED_DIR="$(cd "$(dirname "${INPUT_FILE}")" 2>/dev/null && pwd)"
+        if [ -z "${RESOLVED_DIR}" ] || [ ! -d "${RESOLVED_DIR}" ]; then
+            echo "Error: Could not resolve input file directory: $(dirname "${INPUT_FILE}")"
+            exit 1
+        fi
+        INPUT_FILE="${RESOLVED_DIR}/$(basename "${INPUT_FILE}")"
+    else
+        INPUT_FILE="${LOCAL_BASE_DIR}/${INPUT_FILE}"
+    fi
 fi
 if [[ "${CONFIG_FILE}" != /* ]]; then
-    CONFIG_FILE="${LOCAL_BASE_DIR}/${CONFIG_FILE}"
+    # If path starts with .., resolve from current working directory
+    if [[ "${CONFIG_FILE}" == ../* ]]; then
+        RESOLVED_DIR="$(cd "$(dirname "${CONFIG_FILE}")" 2>/dev/null && pwd)"
+        if [ -z "${RESOLVED_DIR}" ] || [ ! -d "${RESOLVED_DIR}" ]; then
+            echo "Error: Could not resolve config file directory: $(dirname "${CONFIG_FILE}")"
+            exit 1
+        fi
+        CONFIG_FILE="${RESOLVED_DIR}/$(basename "${CONFIG_FILE}")"
+    else
+        CONFIG_FILE="${LOCAL_BASE_DIR}/${CONFIG_FILE}"
+    fi
 fi
 
 # Extract just the filenames for cluster

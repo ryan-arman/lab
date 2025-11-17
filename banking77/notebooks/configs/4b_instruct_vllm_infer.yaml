@@ -22,7 +22,7 @@ model:
   # adapter_model: null  # Overridden by --model.adapter_model
 
 generation:
-  max_new_tokens: 10  # Enough for a label id
+  max_new_tokens: 100  # Enough for a label id
   temperature: 0.0  # Deterministic for classification
   use_sampling: False  # Deterministic
 

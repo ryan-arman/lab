@@ -38,8 +38,8 @@ echo "======================================"
 
 # Set paths (can be overridden via environment variables)
 CONFIG_FILE="${CONFIG_FILE:-/home/ryan/code/oumi/lab/banking77/notebooks/configs/qwen4b_train_lora.yaml}"
-TRAIN_DATASET="${TRAIN_DATASET:-/home/ryan/code/oumi/lab/banking77/notebooks/data/train.jsonl}"
-VAL_DATASET="${VAL_DATASET:-/home/ryan/code/oumi/lab/banking77/notebooks/data/validation.jsonl}"
+TRAIN_DATASET="${TRAIN_DATASET:-/home/ryan/code/oumi/lab/banking77/notebooks/data/banking77_train.jsonl}"
+VAL_DATASET="${VAL_DATASET:-/home/ryan/code/oumi/lab/banking77/notebooks/data/banking77_val.jsonl}"
 OUTPUT_NAME="${OUTPUT_NAME:-banking77_qwen3_4b_lora}"
 OUTPUT_DIR="${OUTPUT_DIR:-/home/ryan/code/oumi/lab/banking77/notebooks/output/${OUTPUT_NAME}_${SLURM_JOB_ID}}"
 RUN_NAME="${RUN_NAME:-${OUTPUT_NAME}_${SLURM_JOB_ID}}"
