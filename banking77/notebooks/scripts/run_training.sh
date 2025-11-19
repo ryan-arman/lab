@@ -8,10 +8,10 @@
 #SBATCH --error=/home/ryan/code/oumi/lab/banking77/notebooks/logs/banking77_training_qwen3_4b_%j.err
 #SBATCH --time=48:00:00
 
-# Example sbatch script for Banking77 LoRA training
-# Generated from: configs/qwen4b_train_lora.yaml
+# Example sbatch script for Banking77 training (supports both LoRA and full fine-tuning)
+# Works with: configs/qwen4b_train_lora.yaml or configs/4b_instruct_full.yaml
 #
-# This script runs LoRA fine-tuning on the Banking77 dataset using Qwen3-4B-Instruct-2507
+# This script runs fine-tuning on the Banking77 dataset using Qwen3-4B-Instruct-2507
 
 # Initialize conda and activate environment
 # Try common conda initialization paths
@@ -29,7 +29,7 @@ conda activate oumi
 cd /home/ryan/code/oumi
 
 echo "======================================"
-echo "Starting Banking77 LoRA Training"
+echo "Starting Banking77 Training"
 echo "======================================"
 echo "Job Name: banking77_training_qwen3_4b"
 echo "GPUs: 8"
@@ -102,7 +102,7 @@ if [ ! -f "${VAL_DATASET}" ]; then
     exit 1
 fi
 
-echo "Running LoRA training..."
+echo "Running training..."
 echo ""
 
 # Set wandb environment variables
