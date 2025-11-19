@@ -2,12 +2,15 @@
 
 # Script to copy files to cluster using rsync and submit inference job
 # More efficient for large files like test.jsonl
-# Usage: ./submit_inference_rsync.sh [input_file] [config_file] [output_name] [adapter_path] [cluster_host]
+# Usage: ./submit_inference_rsync.sh [input_file] [config_file] [output_name] [adapter_path|cluster_host] [cluster_host]
+# 
+# Note: If 4th argument contains '@', it's treated as cluster_host (no adapter).
+#       Otherwise, it's treated as adapter_path and 5th arg is cluster_host.
 # 
 # Examples:
 #   ./submit_inference_rsync.sh                                    # Use defaults (base model)
 #   ./submit_inference_rsync.sh data/test.jsonl                    # Custom input
-#   ./submit_inference_rsync.sh data/test.jsonl configs/4b_instruct_vllm_infer.yaml results baseline_model_2757 ryan@exun
+#   ./submit_inference_rsync.sh data/test.jsonl configs/4b_instruct_vllm_infer.yaml results ryan@exun  # Base model, custom host
 #   # With LoRA adapter (trained model):
 #   ./submit_inference_rsync.sh data/test.jsonl configs/4b_instruct_vllm_infer.yaml results output/system_prompt_v2_lora_2757 ryan@exun
 
@@ -17,8 +20,24 @@ set -e
 INPUT_FILE="${1:-data/banking77_test.jsonl}"
 CONFIG_FILE="${2:-configs/4b_instruct_vllm_infer.yaml}"
 OUTPUT_NAME="${3:-output}"
-CHECKPOINT_PATH="${4:-}"  # Optional: path to LoRA adapter checkpoint directory (relative to cluster base dir)
-CLUSTER_HOST="${5:-ryan@exun}"
+
+# Smart argument parsing: if 4th arg looks like a hostname (contains @), treat it as CLUSTER_HOST
+# Otherwise, treat it as CHECKPOINT_PATH
+if [ -n "${4}" ]; then
+    if [[ "${4}" == *"@"* ]]; then
+        # 4th argument is a hostname, so no checkpoint path provided
+        CHECKPOINT_PATH=""
+        CLUSTER_HOST="${4}"
+    else
+        # 4th argument is a checkpoint path
+        CHECKPOINT_PATH="${4}"
+        CLUSTER_HOST="${5:-ryan@exun}"
+    fi
+else
+    # No 4th argument provided
+    CHECKPOINT_PATH=""
+    CLUSTER_HOST="${5:-ryan@exun}"
+fi
 
 # Configuration - adjust these for your cluster
 CLUSTER_BASE_DIR="/home/ryan/code/oumi/lab/banking77/notebooks"
