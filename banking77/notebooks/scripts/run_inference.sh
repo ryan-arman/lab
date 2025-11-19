@@ -43,13 +43,13 @@ CONFIG_FILE="${CONFIG_FILE:-/home/ryan/code/oumi/lab/banking77/notebooks/configs
 INPUT_PATH="${INPUT_PATH:-/home/ryan/code/oumi/lab/banking77/notebooks/data/banking77_test.jsonl}"
 OUTPUT_NAME="${OUTPUT_NAME:-output}"
 OUTPUT_PATH="${OUTPUT_PATH:-/home/ryan/code/oumi/lab/banking77/notebooks/data/${OUTPUT_NAME}_${SLURM_JOB_ID}.jsonl}"
-CHECKPOINT_PATH="${CHECKPOINT_PATH:-}"  # Optional: path to LoRA adapter checkpoint directory
+CHECKPOINT_PATH="${CHECKPOINT_PATH:-}"  # Optional: path to checkpoint directory (LoRA adapter or full fine-tuning)
 
 echo "Config file: ${CONFIG_FILE}"
 echo "Input path: ${INPUT_PATH}"
 echo "Output path: ${OUTPUT_PATH}"
 if [ -n "${CHECKPOINT_PATH}" ]; then
-    echo "LoRA adapter path: ${CHECKPOINT_PATH}"
+    echo "Checkpoint path: ${CHECKPOINT_PATH}"
 fi
 echo ""
 
@@ -70,16 +70,28 @@ if [ -f "${INPUT_PATH}" ]; then
     echo ""
     
     # Run batch inference
-    # If checkpoint (adapter path) is provided, load base model with LoRA adapter
+    # If checkpoint path is provided, determine if it's LoRA or full fine-tuning
     if [ -n "${CHECKPOINT_PATH}" ]; then
-        echo "Loading base model with LoRA adapter from: ${CHECKPOINT_PATH}"
-        oumi infer \
-            -c "${CONFIG_FILE}" \
-            --model.adapter_model="${CHECKPOINT_PATH}" \
-            --input_path "${INPUT_PATH}" \
-            --output_path "${OUTPUT_PATH}"
+        # Check if checkpoint directory contains LoRA adapter files
+        # LoRA checkpoints have adapter_model.bin or adapter_config.json
+        # Full fine-tuning checkpoints have pytorch_model.bin, model.safetensors, or config.json at root
+        if [ -f "${CHECKPOINT_PATH}/adapter_model.bin" ] || [ -f "${CHECKPOINT_PATH}/adapter_config.json" ]; then
+            echo "Loading base model with LoRA adapter from: ${CHECKPOINT_PATH}"
+            oumi infer \
+                -c "${CONFIG_FILE}" \
+                --model.adapter_model="${CHECKPOINT_PATH}" \
+                --input_path "${INPUT_PATH}" \
+                --output_path "${OUTPUT_PATH}"
+        else
+            echo "Loading full fine-tuned checkpoint from: ${CHECKPOINT_PATH}"
+            oumi infer \
+                -c "${CONFIG_FILE}" \
+                --model.model_name="${CHECKPOINT_PATH}" \
+                --input_path "${INPUT_PATH}" \
+                --output_path "${OUTPUT_PATH}"
+        fi
     else
-        echo "Using base model (no adapter specified)"
+        echo "Using base model (no checkpoint specified)"
         oumi infer \
             -c "${CONFIG_FILE}" \
             --input_path "${INPUT_PATH}" \
