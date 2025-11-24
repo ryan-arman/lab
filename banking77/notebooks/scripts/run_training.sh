@@ -40,9 +40,11 @@ echo "======================================"
 CONFIG_FILE="${CONFIG_FILE:-/home/ryan/code/oumi/lab/banking77/notebooks/configs/qwen4b_train_lora.yaml}"
 TRAIN_DATASET="${TRAIN_DATASET:-/home/ryan/code/oumi/lab/banking77/notebooks/data/banking77_train.jsonl}"
 VAL_DATASET="${VAL_DATASET:-/home/ryan/code/oumi/lab/banking77/notebooks/data/banking77_val.jsonl}"
+TRAIN_DATASET_2="${TRAIN_DATASET_2:-}"  # Optional: second training dataset for mixing
 OUTPUT_NAME="${OUTPUT_NAME:-banking77_qwen3_4b_lora}"
 OUTPUT_DIR="${OUTPUT_DIR:-/home/ryan/code/oumi/lab/banking77/notebooks/output/${OUTPUT_NAME}_${SLURM_JOB_ID}}"
 RUN_NAME="${RUN_NAME:-${OUTPUT_NAME}_${SLURM_JOB_ID}}"
+RESUME_FROM_CHECKPOINT="${RESUME_FROM_CHECKPOINT:-}"  # Optional: path to checkpoint to resume from
 
 # Wandb configuration (can be overridden via environment variables)
 WANDB_PROJECT="${WANDB_PROJECT:-banking77}"
@@ -66,9 +68,17 @@ fi
 
 echo "Config file: ${CONFIG_FILE}"
 echo "Train dataset: ${TRAIN_DATASET}"
+if [ -n "${TRAIN_DATASET_2}" ]; then
+    echo "Second train dataset: ${TRAIN_DATASET_2}"
+fi
 echo "Validation dataset: ${VAL_DATASET}"
 echo "Output directory: ${OUTPUT_DIR}"
 echo "Run name: ${RUN_NAME}"
+if [ -n "${RESUME_FROM_CHECKPOINT}" ]; then
+    echo "Resume from checkpoint: ${RESUME_FROM_CHECKPOINT}"
+else
+    echo "Resume from checkpoint: (none - starting from scratch)"
+fi
 echo "Wandb project: ${WANDB_PROJECT}"
 echo "Wandb run name: ${RUN_NAME}"
 if [ -n "${WANDB_ENTITY}" ]; then
@@ -147,12 +157,28 @@ else
 fi
 
 # Run training with command-line overrides for dataset paths and output
-oumi distributed torchrun --nproc_per_node=8 --master-port=9010 -m oumi train \
-    -c "${CONFIG_FILE}" \
-    --data.train.datasets.0.dataset_path="${TRAIN_DATASET}" \
-    --data.validation.datasets.0.dataset_path="${VAL_DATASET}" \
-    --training.output_dir="${OUTPUT_DIR}" \
-    --training.run_name="${RUN_NAME}"
+# Build the command with optional resume_from_checkpoint and second dataset parameters
+TRAIN_CMD="oumi distributed torchrun --nproc_per_node=8 --master-port=9010 -m oumi train \
+    -c \"${CONFIG_FILE}\" \
+    --data.train.datasets.0.dataset_path=\"${TRAIN_DATASET}\" \
+    --data.validation.datasets.0.dataset_path=\"${VAL_DATASET}\" \
+    --training.output_dir=\"${OUTPUT_DIR}\" \
+    --training.run_name=\"${RUN_NAME}\""
+
+# Add second training dataset if provided
+if [ -n "${TRAIN_DATASET_2}" ]; then
+    TRAIN_CMD="${TRAIN_CMD} --data.train.datasets.1.dataset_path=\"${TRAIN_DATASET_2}\""
+    echo "Using two training datasets with mixture strategy"
+fi
+
+# Add resume_from_checkpoint if provided
+if [ -n "${RESUME_FROM_CHECKPOINT}" ]; then
+    TRAIN_CMD="${TRAIN_CMD} --training.resume_from_checkpoint=\"${RESUME_FROM_CHECKPOINT}\""
+    echo "Resuming training from checkpoint: ${RESUME_FROM_CHECKPOINT}"
+fi
+
+# Execute the training command
+eval ${TRAIN_CMD}
 
 echo ""
 echo "======================================"

@@ -2,7 +2,9 @@
 
 # Script to copy files to cluster using rsync and submit training job
 # More efficient for large files like training datasets
-# Usage: ./submit_training_rsync.sh [train_dataset] [val_dataset] [config_file] [output_name] [cluster_host] [wandb_project] [wandb_entity]
+# Usage: ./submit_training_rsync.sh [train_dataset] [val_dataset] [config_file] [output_name] [cluster_host] [wandb_project] [wandb_entity] [checkpoint_path] [train_dataset_2]
+# 
+# For multiple training datasets, pass the second dataset as the 9th argument
 # 
 # Examples:
 #   ./submit_training_rsync.sh                                    # Use defaults
@@ -10,6 +12,8 @@
 #   ./submit_training_rsync.sh "" "" "" "" "" my-custom-project  # Pass only wandb project (use "" for defaults)
 #   ./submit_training_rsync.sh data/train.jsonl data/validation.jsonl configs/qwen4b_train_lora.yaml my_training ryan@exun banking77-qwen3-4b
 #   ./submit_training_rsync.sh data/train.jsonl data/validation.jsonl configs/qwen4b_train_lora.yaml my_training ryan@exun banking77-qwen3-4b my-team
+#   ./submit_training_rsync.sh data/train.jsonl data/validation.jsonl configs/qwen4b_train_lora.yaml my_training ryan@exun banking77-qwen3-4b "" output/banking77_qwen3_4b_full_3009  # Resume from checkpoint
+#   ./submit_training_rsync.sh data/train1.jsonl data/validation.jsonl configs/4b_instruct_full_1_epoch_mix_data.yaml my_training ryan@exun banking77-qwen3-4b "" "" data/train2.jsonl  # Two training datasets
 #
 # Wandb Configuration:
 #   - Set WANDB_API_KEY in your environment: export WANDB_API_KEY=your_key_here
@@ -40,6 +44,18 @@ if [ $# -ge 7 ]; then
 else
     WANDB_ENTITY="${WANDB_ENTITY:-}"
 fi
+# For checkpoint_path (resume from checkpoint), check if argument 8 was explicitly provided
+if [ $# -ge 8 ]; then
+    CHECKPOINT_PATH="${8:-}"
+else
+    CHECKPOINT_PATH=""
+fi
+# For second training dataset (for mixing multiple datasets), check if argument 9 was explicitly provided
+if [ $# -ge 9 ]; then
+    TRAIN_DATASET_2="${9:-}"
+else
+    TRAIN_DATASET_2=""
+fi
 
 # Configuration - adjust these for your cluster
 CLUSTER_BASE_DIR="/home/ryan/code/oumi/lab/banking77/notebooks"
@@ -55,11 +71,17 @@ fi
 if [[ "${CONFIG_FILE}" != /* ]]; then
     CONFIG_FILE="${LOCAL_BASE_DIR}/${CONFIG_FILE}"
 fi
+if [ -n "${TRAIN_DATASET_2}" ] && [[ "${TRAIN_DATASET_2}" != /* ]]; then
+    TRAIN_DATASET_2="${LOCAL_BASE_DIR}/${TRAIN_DATASET_2}"
+fi
 
 # Extract just the filenames for cluster
 TRAIN_FILENAME=$(basename "${TRAIN_DATASET}")
 VAL_FILENAME=$(basename "${VAL_DATASET}")
 CONFIG_FILENAME=$(basename "${CONFIG_FILE}")
+if [ -n "${TRAIN_DATASET_2}" ]; then
+    TRAIN_FILENAME_2=$(basename "${TRAIN_DATASET_2}")
+fi
 
 echo "======================================"
 echo "Copying files to cluster and submitting training job (using rsync)"
@@ -79,6 +101,15 @@ if [ -n "${WANDB_ENTITY}" ]; then
     echo "   If you get permission errors, leave entity empty to use your personal account."
 else
     echo "Wandb entity: (using personal account)"
+fi
+if [ -n "${CHECKPOINT_PATH}" ]; then
+    echo "Checkpoint path (resume from): ${CHECKPOINT_PATH}"
+else
+    echo "Checkpoint path: (none - starting from scratch)"
+fi
+if [ -n "${TRAIN_DATASET_2}" ]; then
+    echo "Second training dataset: ${TRAIN_DATASET_2}"
+    echo "⚠️  Note: Make sure your config has two datasets defined and mixture_strategy set"
 fi
 if [ -n "${WANDB_API_KEY:-}" ]; then
     echo "Wandb API key: Found in local environment (will be passed to cluster)"
@@ -110,11 +141,14 @@ if [ ! -f "${CONFIG_FILE}" ]; then
     exit 1
 fi
 
+# Build rsync command with optional second dataset
+RSYNC_FILES=("${TRAIN_DATASET}" "${VAL_DATASET}" "${CONFIG_FILE}" "${LOCAL_BASE_DIR}/scripts/run_training.sh")
+if [ -n "${TRAIN_DATASET_2}" ]; then
+    RSYNC_FILES+=("${TRAIN_DATASET_2}")
+fi
+
 rsync -avz --progress \
-    "${TRAIN_DATASET}" \
-    "${VAL_DATASET}" \
-    "${CONFIG_FILE}" \
-    "${LOCAL_BASE_DIR}/scripts/run_training.sh" \
+    "${RSYNC_FILES[@]}" \
     "${CLUSTER_HOST}:${CLUSTER_BASE_DIR}/"
 
 echo ""
@@ -132,6 +166,23 @@ fi
 if [ -n "${WANDB_API_KEY:-}" ]; then
     EXPORT_VARS="${EXPORT_VARS},WANDB_API_KEY=${WANDB_API_KEY}"
     echo "Passing WANDB_API_KEY from local environment to cluster job"
+fi
+# Pass checkpoint path if provided
+if [ -n "${CHECKPOINT_PATH}" ]; then
+    # Resolve checkpoint path (handle both relative and absolute paths)
+    if [[ "${CHECKPOINT_PATH}" != /* ]]; then
+        # If relative, assume it's relative to CLUSTER_BASE_DIR
+        CHECKPOINT_PATH="${CLUSTER_BASE_DIR}/${CHECKPOINT_PATH}"
+    fi
+    EXPORT_VARS="${EXPORT_VARS},RESUME_FROM_CHECKPOINT=${CHECKPOINT_PATH}"
+    echo "Passing checkpoint path: ${CHECKPOINT_PATH}"
+fi
+# Pass second training dataset if provided
+if [ -n "${TRAIN_DATASET_2}" ]; then
+    # Always use cluster base dir + filename (since we rsync'd it there)
+    TRAIN_DATASET_2_CLUSTER="${CLUSTER_BASE_DIR}/${TRAIN_FILENAME_2}"
+    EXPORT_VARS="${EXPORT_VARS},TRAIN_DATASET_2=${TRAIN_DATASET_2_CLUSTER}"
+    echo "Passing second training dataset: ${TRAIN_DATASET_2_CLUSTER}"
 fi
 
 ssh "${CLUSTER_HOST}" "cd ${CLUSTER_BASE_DIR} && sbatch --export=${EXPORT_VARS} run_training.sh"
