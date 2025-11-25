@@ -7,6 +7,86 @@ import openai
 from IPython.display import display, HTML
 import textwrap
 
+LABEL_NAMES_MAP = {0: "activate_my_card",
+1: "age_limit",
+2: "apple_pay_or_google_pay",
+3: "atm_support",
+4: "automatic_top_up",
+5: "balance_not_updated_after_bank_transfer",
+6: "balance_not_updated_after_cheque_or_cash_deposit",
+7: "beneficiary_not_allowed",
+8: "cancel_transfer",
+9: "card_about_to_expire",
+10: "card_acceptance",
+11: "card_arrival",
+12: "card_delivery_estimate",
+13: "card_linking",     
+14: "card_not_working",
+15: "card_payment_fee_charged",
+16: "card_payment_not_recognised",
+17: "card_payment_wrong_exchange_rate",
+18: "card_swallowed",
+19: "cash_withdrawal_charge",
+20: "cash_withdrawal_not_recognised",
+21: "change_pin",
+22: "compromised_card",
+23: "contactless_not_working",
+24: "country_support",
+25: "declined_card_payment",
+26: "declined_cash_withdrawal",
+27: "declined_transfer",
+28: "direct_debit_payment_not_recognised",
+29: "disposable_card_limits",
+30: "edit_personal_details",
+31: "exchange_charge",
+32: "exchange_rate",
+33: "exchange_via_app",
+34: "extra_charge_on_statement",
+35: "failed_transfer",
+36: "fiat_currency_support",
+37: "get_disposable_virtual_card",
+38: "get_physical_card",
+39: "getting_spare_card",
+40: "getting_virtual_card",
+41: "lost_or_stolen_card",
+42: "lost_or_stolen_phone",
+43: "order_physical_card",
+44: "passcode_forgotten",
+45: "pending_card_payment",
+46: "pending_cash_withdrawal",
+47: "pending_top_up",
+48: "pending_transfer",
+49: "pin_blocked",
+50: "receiving_money",
+51: "Refund_not_showing_up",
+52: "request_refund",
+53: "reverted_card_payment?",
+54: "supported_cards_and_currencies",
+55: "terminate_account",
+56: "top_up_by_bank_transfer_charge",
+57: "top_up_by_card_charge",
+58: "top_up_by_cash_or_cheque",
+59: "top_up_failed",
+60: "top_up_limits",    
+61: "top_up_reverted",
+62: "topping_up_by_card",
+63: "transaction_charged_twice",
+64: "transfer_fee_charged",
+65: "transfer_into_account",
+66: "transfer_not_received_by_recipient",
+67: "transfer_timing",
+68: "unable_to_verify_identity",
+69: "verify_my_identity",
+70: "verify_source_of_funds",
+71: "verify_top_up",
+72: "virtual_card_not_working",
+73: "visa_or_mastercard",
+74: "why_verify_identity",
+75: "wrong_amount_of_cash_received",
+76: "wrong_exchange_rate_for_cash_withdrawal"}
+
+
+
 def load_conversations(input_path):
     """
     Load conversations from a JSONL file.
@@ -568,4 +648,326 @@ def save_evaluation_results(results, inference_data, output_path):
             f.write(json.dumps(output_entry, ensure_ascii=False) + '\n')
     
     print(f"Saved {len(results)} evaluation results to {output_path}")
+
+
+# System prompt for generating hard examples
+HARD_EXAMPLES_SYSTEM_PROMPT = """You are an expert dataset generator for multi-class classification tasks in the banking and fintech domain.
+
+Your job is to generate **synthetic hard examples** for pairs of often-confused classes in the Banking77 dataset.
+
+A "hard example" means:
+- It should be *close in wording and semantics* to the *other* class, but still *clearly* belongs to its correct class.
+- It must include *decisive lexical cues* that clearly separate the two labels.
+- It should reflect realistic, natural user language.
+
+General requirements:
+
+1. You will receive two class labels: CLASS_A and CLASS_B.
+
+2. You will receive short definitions describing each label.
+
+3. You must generate examples for:
+   - Examples **belonging to CLASS_A** that deliberately resemble CLASS_B queries but still contain the cues for CLASS_A.
+   - Examples **belonging to CLASS_B** that deliberately resemble CLASS_A queries but still contain the cues for CLASS_B.
+
+4. All output must be valid JSONL, one object per line:
+   {"label": "<label_name>", "text": "<user query>"}
+
+Rules for the examples:
+- Never include both labels in the same example.
+- Avoid unnatural phrasing or repeating templates.
+- Use diverse natural language, different tones, different styles.
+- Avoid repeating datasets' original examples.
+- Do NOT use words that contradict the assigned class (e.g., do not say "shows pending" in a failed example unless it's clearly negated like "not pending anymore, but failed").
+- Follow the defining cues for each class carefully.
+
+To create hard examples:
+- Borrow *structure, tone, or content* from the other label.
+- But inject *class-specific decisive signals* (e.g., "error", "failed", "declined" vs "pending", "processing", "in progress").
+- Make examples long enough to provide context (10–25 words preferred).
+- Vary entities: card, wallet, account, bank, friend, merchant, etc.
+
+Output Order:
+1. First output all CLASS_A examples.
+2. Then output all CLASS_B examples.
+
+Output Format:
+No explanations, no extra commentary — only JSONL objects."""
+
+# User prompt template for generating hard examples
+HARD_EXAMPLES_USER_PROMPT_TEMPLATE = """Generate {num_examples} hard synthetic examples.
+
+CLASS_A = "{class_a}"
+
+CLASS_B = "{class_b}"
+
+DEFINITION_A: {definition_a}
+
+DEFINITION_B: {definition_b}
+
+Please generate {num_class_a} examples for CLASS_A (hard negatives incorporating CLASS_B structure), and {num_class_b} examples for CLASS_B (hard negatives incorporating CLASS_A structure)."""
+
+
+def generate_hard_examples(class_a, class_b, definition_a, definition_b, 
+                           num_examples=40, num_class_a=None, num_class_b=None,
+                           model="gpt-5", temperature=1.0, client_instance=None):
+    """
+    Generate hard synthetic examples for a pair of often-confused classes.
+    
+    Args:
+        class_a: Name of the first class (e.g., "pending_top_up")
+        class_b: Name of the second class (e.g., "top_up_failed")
+        definition_a: Definition/description of class_a
+        definition_b: Definition/description of class_b
+        num_examples: Total number of examples to generate (default: 40)
+        num_class_a: Number of examples for class_a (default: num_examples // 2)
+        num_class_b: Number of examples for class_b (default: num_examples // 2)
+        model: OpenAI model to use (default: "gpt-5")
+        temperature: Temperature for the API call (default: 1.0)
+        client_instance: Optional OpenAI client instance
+    
+    Returns:
+        List of dictionaries with 'label' and 'text' keys
+    """
+    if client_instance is None:
+        client_instance = get_client()
+    
+    if num_class_a is None:
+        num_class_a = num_examples // 2
+    if num_class_b is None:
+        num_class_b = num_examples // 2
+    
+    # Format the user prompt
+    user_prompt = HARD_EXAMPLES_USER_PROMPT_TEMPLATE.format(
+        num_examples=num_examples,
+        class_a=class_a,
+        class_b=class_b,
+        definition_a=definition_a,
+        definition_b=definition_b,
+        num_class_a=num_class_a,
+        num_class_b=num_class_b
+    )
+    
+    # Call OpenAI to generate examples
+    response = client_instance.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": HARD_EXAMPLES_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt}
+        ],
+        temperature=temperature
+    )
+    
+    full_response = response.choices[0].message.content.strip()
+    
+    # Create reverse mapping from label name to ID
+    label_name_to_id = {v: k for k, v in LABEL_NAMES_MAP.items()}
+    
+    # Parse JSONL output and convert to conversation format
+    examples = []
+    for line in full_response.split('\n'):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            # Try to parse as JSON
+            example = json.loads(line)
+            if 'label' in example and 'text' in example:
+                label_name = example['label']
+                user_query = example['text']
+                
+                # Get label ID from label name
+                label_id = label_name_to_id.get(label_name)
+                if label_id is None:
+                    # Skip if label name not found in mapping
+                    continue
+                
+                # Format in conversation format
+                conversation_example = {
+                    "messages": [
+                        {"id": None, "role": "user", "content": user_query},
+                        {"id": None, "role": "assistant", "content": str(label_id)}
+                    ],
+                    "metadata": {}
+                }
+                examples.append(conversation_example)
+        except json.JSONDecodeError:
+            # Skip lines that aren't valid JSON
+            continue
+    
+    return {
+        'examples': examples,
+        'full_response': full_response,
+        'class_a': class_a,
+        'class_b': class_b,
+        'num_generated': len(examples),
+        'messages': [
+            {"role": "system", "content": HARD_EXAMPLES_SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt}
+        ]
+    }
+
+
+def generate_hard_examples_batch(pairs, get_label_name_func, system_message,
+                                  num_examples=40, num_class_a=None, num_class_b=None,
+                                  model="gpt-5", temperature=1.0, max_workers=1000,
+                                  output_file=None, show_progress=True):
+    """
+    Generate hard examples for multiple pairs in parallel.
+    
+    Args:
+        pairs: List of pair strings in format "label1_id-label2_id" (e.g., ["47-59", "5-67"])
+        get_label_name_func: Function to get label name from label ID and system message
+        system_message: System message containing label definitions
+        num_examples: Total number of examples per pair (default: 40)
+        num_class_a: Number of examples for class_a per pair (default: num_examples // 2)
+        num_class_b: Number of examples for class_b per pair (default: num_examples // 2)
+        model: OpenAI model to use (default: "gpt-5")
+        temperature: Temperature for the API call (default: 1.0)
+        max_workers: Maximum number of parallel workers (default: 1000)
+        output_file: Optional path to save results as JSONL (default: None)
+        show_progress: If True, print progress updates (default: True)
+    
+    Returns:
+        Dictionary with:
+            - 'results': List of result dictionaries for each pair
+            - 'all_examples': List of all generated examples in conversation format
+            - 'total_examples': Total number of examples generated
+            - 'successful_pairs': Number of successfully processed pairs
+            - 'failed_pairs': Number of failed pairs
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    
+    if num_class_a is None:
+        num_class_a = num_examples // 2
+    if num_class_b is None:
+        num_class_b = num_examples // 2
+    
+    def generate_for_pair(pair):
+        """Generate hard examples for a single pair."""
+        try:
+            pair_split = pair.split('-')
+            label1_id, label2_id = int(pair_split[0]), int(pair_split[1])
+            
+            # Get label names
+            label1_name = get_label_name_func(label1_id, system_message)
+            label2_name = get_label_name_func(label2_id, system_message)
+            
+            # Create definitions based on label names
+            definition_a = f"User query related to {label1_name.replace('_', ' ')}"
+            definition_b = f"User query related to {label2_name.replace('_', ' ')}"
+            
+            # Generate hard examples
+            result = generate_hard_examples(
+                class_a=label1_name,
+                class_b=label2_name,
+                definition_a=definition_a,
+                definition_b=definition_b,
+                num_examples=num_examples,
+                num_class_a=num_class_a,
+                num_class_b=num_class_b,
+                model=model,
+                temperature=temperature
+            )
+            
+            return {
+                'pair': pair,
+                'label1_id': label1_id,
+                'label2_id': label2_id,
+                'label1_name': label1_name,
+                'label2_name': label2_name,
+                'result': result,
+                'success': True,
+                'error': None
+            }
+        except Exception as e:
+            return {
+                'pair': pair,
+                'label1_id': None,
+                'label2_id': None,
+                'label1_name': None,
+                'label2_name': None,
+                'result': None,
+                'success': False,
+                'error': str(e)
+            }
+    
+    # Process all pairs in parallel
+    all_results = []
+    
+    if show_progress:
+        print(f"Processing {len(pairs)} pairs with {max_workers} workers...")
+        if output_file:
+            print(f"Output file: {output_file}\n")
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all tasks
+        future_to_pair = {
+            executor.submit(generate_for_pair, pair): pair
+            for pair in pairs
+        }
+        
+        # Collect results as they complete
+        completed = 0
+        for future in as_completed(future_to_pair):
+            pair = future_to_pair[future]
+            try:
+                result = future.result()
+                all_results.append(result)
+                completed += 1
+                
+                if show_progress:
+                    if result['success']:
+                        num_generated = result['result']['num_generated']
+                        print(f"[{completed}/{len(pairs)}] ✓ {result['label1_name']} <-> {result['label2_name']}: {num_generated} examples")
+                    else:
+                        print(f"[{completed}/{len(pairs)}] ✗ {pair}: Error - {result['error']}")
+            except Exception as e:
+                if show_progress:
+                    print(f"[{completed}/{len(pairs)}] ✗ {pair}: Exception - {str(e)}")
+                all_results.append({
+                    'pair': pair,
+                    'label1_id': None,
+                    'label2_id': None,
+                    'label1_name': None,
+                    'label2_name': None,
+                    'result': None,
+                    'success': False,
+                    'error': str(e)
+                })
+                completed += 1
+    
+    # Collect all examples
+    all_examples = []
+    for result_data in all_results:
+        if result_data['success'] and result_data['result']:
+            all_examples.extend(result_data['result']['examples'])
+    
+    # Save to file if specified
+    if output_file:
+        output_dir = os.path.dirname(output_file)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+        with open(output_file, 'w', encoding='utf-8') as f:
+            for example in all_examples:
+                f.write(json.dumps(example, ensure_ascii=False) + '\n')
+        if show_progress:
+            print(f"\n✓ Saved {len(all_examples)} examples to {output_file}")
+    
+    # Calculate summary
+    successful_pairs = sum(1 for r in all_results if r['success'])
+    failed_pairs = len(all_results) - successful_pairs
+    
+    if show_progress:
+        print(f"\n✓ Completed processing {len(pairs)} pairs")
+        print(f"✓ Generated {len(all_examples)} total examples")
+        print(f"Summary: {successful_pairs} successful, {failed_pairs} failed")
+    
+    return {
+        'results': all_results,
+        'all_examples': all_examples,
+        'total_examples': len(all_examples),
+        'successful_pairs': successful_pairs,
+        'failed_pairs': failed_pairs
+    }
 
