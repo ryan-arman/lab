@@ -971,3 +971,239 @@ def generate_hard_examples_batch(pairs, get_label_name_func, system_message,
         'failed_pairs': failed_pairs
     }
 
+
+def create_banking77_synthesis_config(
+    num_samples: int = 100,
+    base_url: str | None = None,
+    api_key: str | None = None,
+) -> dict:
+    """
+    Create a synthesis config for Banking77 classification task using the synthesis API.
+    
+    This function creates a synthesis recipe configuration that can be used with the
+    synthesis API to generate training examples for all 77 Banking77 labels.
+    
+    The config uses:
+    - A sampled attribute for the label (uniformly samples from all 77 labels)
+    - A generated attribute that creates realistic banking queries based on the label
+    - A transformed attribute that formats the output as a conversation
+    
+    Args:
+        num_samples: Number of synthetic examples to generate (default: 100)
+        base_url: Base URL for the synthesis API (default: None, uses environment)
+        api_key: API key for authentication (default: None, uses environment)
+    
+    Returns:
+        Dictionary containing the synthesis recipe config that can be sent to:
+        POST /projects/{project_id}/synthesis:run
+    
+    Example:
+        >>> from utils import create_banking77_synthesis_config
+        >>> 
+        >>> # Create config for 1000 examples
+        >>> config = create_banking77_synthesis_config(num_samples=1000)
+        >>> 
+        >>> # Use with synthesis API (assuming you have API client set up):
+        >>> # import requests
+        >>> # response = requests.post(
+        >>> #     f"{base_url}/projects/{project_id}/synthesis:run",
+        >>> #     json={"recipe": {"recipe_config": config}},
+        >>> #     headers={"Authorization": f"Bearer {api_key}"}
+        >>> # )
+        >>> 
+        >>> # Or save to file for manual API call:
+        >>> # import json
+        >>> # with open("synthesis_config.json", "w") as f:
+        >>> #     json.dump({"recipe": {"recipe_config": config}}, f, indent=2)
+    """
+    # Create label attribute values from LABEL_NAMES_MAP
+    # Calculate uniform sample rate (1.0 / number of labels) so they sum to 1.0
+    num_labels = len(LABEL_NAMES_MAP)
+    uniform_rate = 1.0 / num_labels
+    
+    label_values = []
+    total_rate = 0.0
+    for i, (label_id, label_name) in enumerate(LABEL_NAMES_MAP.items()):
+        # Convert label name to a more readable description
+        description = label_name.replace("_", " ").title()
+        
+        # For the last label, adjust the rate to ensure exact sum of 1.0
+        if i == num_labels - 1:
+            sample_rate = 1.0 - total_rate  # Make sure total is exactly 1.0
+        else:
+            sample_rate = uniform_rate
+            total_rate += sample_rate
+        
+        label_values.append({
+            "id": str(label_id),  # Use label_id directly as the ID
+            "name": label_name,
+            "description": f"Banking query about: {description}",
+            "sample_rate": sample_rate  # Uniform distribution - all rates sum to exactly 1.0
+        })
+    
+    # Get OpenAI API key from environment if available
+    openai_api_key = os.environ.get("OPENAI_API_KEY")
+    api_keys = None
+    if openai_api_key:
+        api_keys = {
+            "openai": openai_api_key
+        }
+    
+    # Create the synthesis config structure
+    synthesis_config = {
+        "type": "synthesize",
+        "model_identifier": {
+            "model_type": "OPENAI_API",  # Must be one of: ANTHROPIC_API, OPENAI_API, GEMINI_API, VERTEX_API, TOGETHER_API
+            "model_name": "gpt-5-mini",  # Can be changed to other models
+            "api_keys": api_keys  # Optional: API keys for the hosted model
+        },
+        "inference_config": {
+            "inference_temperature": 1.0,
+            "inference_max_new_tokens": 512
+        },
+        "synthesis_config": {
+            "synthesis_type": "general",
+            "synthesis_config": {
+                "num_samples": num_samples,
+                "strategy": "general",
+                "strategy_params": {
+                    "sampled_attributes": [
+                        {
+                            "id": "label",
+                            "name": "Banking Intent Label",
+                            "description": "The intent category for the banking query",
+                            "possible_values": label_values
+                        }
+                    ],
+                    "generated_attributes": [
+                        {
+                            "id": "user_query",
+                            "instruction_messages": [
+                                {
+                                    "role": "system",
+                                    "content": (
+                                        "You are generating realistic banking customer service queries. "
+                                        "Generate natural, conversational queries that a customer might ask "
+                                        "about banking services, card issues, transfers, payments, etc."
+                                    )
+                                },
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        "Generate a realistic banking customer service query for the intent: "
+                                        "{label}\n\n"
+                                        "The query should be:\n"
+                                        "- Natural and conversational\n"
+                                        "- Specific to the banking intent\n"
+                                        "- Similar to real customer service interactions\n"
+                                        "- 1-3 sentences long\n\n"
+                                        "Generate only the customer query text, nothing else."
+                                    )
+                                }
+                            ]
+                        }
+                    ],
+                    "transformed_attributes": [
+                        {
+                            "id": "conversation",
+                            "transformation_strategy": {
+                                "type": "chat",
+                                "chat_transform": {
+                                    "messages": [
+                                        {
+                                            "role": "user",
+                                            "content": "{user_query}"
+                                        },
+                                        {
+                                            "role": "assistant",
+                                            "content": "{label}"
+                                        }
+                                    ],
+                                    "metadata": {}
+                                }
+                            }
+                        }
+                    ],
+                    "passthrough_attributes": ["conversation"]
+                }
+            }
+        }
+    }
+    
+    return synthesis_config
+
+
+def create_banking77_synthesis_config_from_task_definition(
+    task_definition: str | None = None,
+    num_samples: int = 100,
+    base_url: str | None = None,
+    api_key: str | None = None,
+) -> dict:
+    """
+    Generate a synthesis config using the synthesis API's generate-config endpoint.
+    
+    This is an alternative approach that uses the API's config generation feature
+    to automatically create a synthesis config from a task definition.
+    
+    Args:
+        task_definition: Task description. If None, uses a default Banking77 description.
+        num_samples: Number of synthetic examples to generate (default: 100)
+        base_url: Base URL for the synthesis API (default: None, uses environment)
+        api_key: API key for authentication (default: None, uses environment)
+    
+    Returns:
+        Dictionary with instructions on how to call the generate-config endpoint
+    
+    Example:
+        >>> task_def = create_banking77_task_definition()
+        >>> # Then call:
+        >>> # POST /projects/{project_id}/synthesis:generate-config
+        >>> # Body: {
+        >>> #     "task_definition": task_def,
+        >>> #     "model_identifier": {"type": "hosted", "model_name": "gpt-4o"},
+        >>> #     "inference_config": {"temperature": 1.0, "max_tokens": 512}
+        >>> # }
+    """
+    if task_definition is None:
+        # Create a comprehensive task definition
+        labels_list = ", ".join([f"{label_id}: {name}" for label_id, name in sorted(LABEL_NAMES_MAP.items())])
+        task_definition = f"""Generate training examples for a banking intent classification task.
+
+The task is to classify customer service queries into one of 77 banking intent categories.
+
+Labels:
+{labels_list}
+
+Each training example should be a conversation with:
+- User message: A natural banking customer service query
+- Assistant message: The label ID (0-76) corresponding to the intent
+
+The queries should be:
+- Realistic and natural
+- Specific to banking services
+- Varied in phrasing and style
+- Representative of actual customer service interactions
+
+Generate {num_samples} diverse training examples covering all 77 labels."""
+    
+    # Get OpenAI API key from environment if available
+    openai_api_key = os.environ.get("OPENAI_API_KEY")
+    api_keys = None
+    if openai_api_key:
+        api_keys = {
+            "openai": openai_api_key
+        }
+    
+    return {
+        "task_definition": task_definition,
+        "model_identifier": {
+            "model_type": "OPENAI_API",  # Must be one of: ANTHROPIC_API, OPENAI_API, GEMINI_API, VERTEX_API, TOGETHER_API
+            "model_name": "gpt-5-mini",
+            "api_keys": api_keys  # Optional: API keys for the hosted model
+        },
+        "inference_config": {
+            "inference_temperature": 1.0,
+            "inference_max_new_tokens": 512
+        }
+    }
+
