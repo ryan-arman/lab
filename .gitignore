@@ -49,3 +49,6 @@ Thumbs.db
 *.tmp
 *.temp
 
+# Data directories
+banking77/notebooks/data/
+
