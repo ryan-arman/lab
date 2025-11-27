@@ -56,33 +56,44 @@ training:
   run_name: "REQUIRED_VIA_SCRIPT"  # Overridden by --training.run_name
   
   num_train_epochs: 2
-  
+
+  # Batch size settings
   per_device_train_batch_size: 2
   gradient_accumulation_steps: 2
   # Adjusted for 8 GPUs: batch_size=1, grad_accum=2 → effective batch=16 (same as 1 GPU)
-  
-  learning_rate: 4.0e-05
-  lr_scheduler_type: cosine
-  warmup_ratio: 0.05
-  optimizer: adamw_torch_fused
   max_grad_norm: 1.0
-  
+
+  # Mixed precision and performance settings
   enable_gradient_checkpointing: true
   gradient_checkpointing_kwargs:
     use_reentrant: false
+
+   # Optimization
+  learning_rate: 4.0e-05
+  optimizer: adamw_torch_fused
+
+  # Learning rate schedule
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.05
   
+  # Evaluation
+  eval_strategy: "steps"
   save_steps: 100
   eval_steps: 100
-  eval_strategy: "steps"
-  logging_steps: 10
+
   
+  # Data loader settings
   dataloader_num_workers: auto
   dataloader_prefetch_factor: 32
-  empty_device_cache_steps: 50
-  include_performance_metrics: true
-  
+
+  # Logging
+  logging_steps: 10
   enable_wandb: True
   enable_mlflow: True
+
+  # Performance monitoring
+  empty_device_cache_steps: 50
+  include_performance_metrics: true
   
   ddp_find_unused_parameters: False
   compile: False
