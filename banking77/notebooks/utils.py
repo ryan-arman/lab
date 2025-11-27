@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import sys
 import openai
 from IPython.display import display, HTML
 import textwrap
@@ -85,6 +86,251 @@ LABEL_NAMES_MAP = {0: "activate_my_card",
 75: "wrong_amount_of_cash_received",
 76: "wrong_exchange_rate_for_cash_withdrawal"}
 
+
+SYSTEM_PROMPT = """You are a banking intent classifier. Classify the user's query into one of  77 banking intents (output is a single integer ID).
+
+IDs:
+
+0: activate_my_card
+1: age_limit
+2: apple_pay_or_google_pay
+3: atm_support
+4: automatic_top_up
+5: balance_not_updated_after_bank_transfer
+6: balance_not_updated_after_cheque_or_cash_deposit
+7: beneficiary_not_allowed
+8: cancel_transfer
+9: card_about_to_expire
+10: card_acceptance
+11: card_arrival
+12: card_delivery_estimate
+13: card_linking
+14: card_not_working
+15: card_payment_fee_charged
+16: card_payment_not_recognised
+17: card_payment_wrong_exchange_rate
+18: card_swallowed
+19: cash_withdrawal_charge
+20: cash_withdrawal_not_recognised
+21: change_pin
+22: compromised_card
+23: contactless_not_working
+24: country_support
+25: declined_card_payment
+26: declined_cash_withdrawal
+27: declined_transfer
+28: direct_debit_payment_not_recognised
+29: disposable_card_limits
+30: edit_personal_details
+31: exchange_charge
+32: exchange_rate
+33: exchange_via_app
+34: extra_charge_on_statement
+35: failed_transfer
+36: fiat_currency_support
+37: get_disposable_virtual_card
+38: get_physical_card
+39: getting_spare_card
+40: getting_virtual_card
+41: lost_or_stolen_card
+42: lost_or_stolen_phone
+43: order_physical_card
+44: passcode_forgotten
+45: pending_card_payment
+46: pending_cash_withdrawal
+47: pending_top_up
+48: pending_transfer
+49: pin_blocked
+50: receiving_money
+51: Refund_not_showing_up
+52: request_refund
+53: reverted_card_payment?
+54: supported_cards_and_currencies
+55: terminate_account
+56: top_up_by_bank_transfer_charge
+57: top_up_by_card_charge
+58: top_up_by_cash_or_cheque
+59: top_up_failed
+60: top_up_limits
+61: top_up_reverted
+62: topping_up_by_card
+63: transaction_charged_twice
+64: transfer_fee_charged
+65: transfer_into_account
+66: transfer_not_received_by_recipient
+67: transfer_timing
+68: unable_to_verify_identity
+69: verify_my_identity
+70: verify_source_of_funds
+71: verify_top_up
+72: virtual_card_not_working
+73: visa_or_mastercard
+74: why_verify_identity
+75: wrong_amount_of_cash_received
+76: wrong_exchange_rate_for_cash_withdrawal
+
+CRITICAL INSTRUCTIONS:
+1. Choose exactly one integer ID (0-76).
+2. Reply with ONLY that number. No words, no reasoning, no punctuation.
+Examples: 0, 1, 42
+
+EXAMPLES TO HELP DISTINGUISH SIMILAR INTENTS:
+EXAMPLES TO HELP DISTINGUISH SIMILAR INTENTS:
+
+1. card_arrival (ID 11) vs card_delivery_estimate (ID 12):
+   card_arrival = asking about YOUR specific card that hasn't arrived yet (tracking, status)
+   card_delivery_estimate = asking about general delivery timeframes/how long it takes
+   - Query: "Could you send me and up date on the arrival of my card?" → 11
+   - Query: "My card was supposed to arrive, but hasn't?" → 11
+   - Query: "I have not received my card and it's been a week, what do I do?" → 11
+   - Query: "can you express my card to me?" → 12
+   - Query: "Can I choose the day it's delivered?" → 12
+   - Query: "i need to add express delivery if that's an option" → 12
+
+2. card_linking (ID 13) vs activate_my_card (ID 0) vs lost_or_stolen_card (ID 41):
+   card_linking = reconnecting a card you found/retrieved
+   activate_my_card = activating a NEW card for first time
+   lost_or_stolen_card = reporting a card as lost/stolen
+   - Query: "Okay, I found my card, can I put it back in the app?" → 13
+   - Query: "I want to reactivate my card, I thought I had lost it but I found it." → 13
+   - Query: "What do I need to do for the card activation?" → 0
+   - Query: "Tell me what I need to do to activate my card." → 0
+   - Query: "I left my card at a restaurant and now its missing." → 41
+   - Query: "Who can I speak with regarding a lost card?" → 41
+
+3. pin_blocked (ID 49) vs change_pin (ID 21):
+   pin_blocked = PIN is locked/blocked, need to unlock
+   change_pin = want to change PIN to a new one
+   - Query: "How many times can I enter a wrong PIN before it is blocked?" → 49
+   - Query: "I entered in the wrong PIN.  Please help me unlock my account." → 49
+   - Query: "Where do I need to go to change my PIN?" → 21
+   - Query: "I really need to know how to change my pin." → 21
+
+4. pending_cash_withdrawal (ID 46) vs declined_cash_withdrawal (ID 26) vs cash_withdrawal_not_recognised (ID 20):
+   pending_cash_withdrawal = withdrawal is processing/pending
+   declined_cash_withdrawal = withdrawal was rejected/declined
+   cash_withdrawal_not_recognised = withdrawal not showing in account
+   - Query: "I tried to get cash at some ATM in the city centre earlier but the machine declined my card. I've seen it still shows up as pending in my account. Please cancel it immediately as I definitely have not received that money!" → 46
+   - Query: "I attempted to get cash in the ATM but it was not authorized" → 26
+   - Query: "My app says I withdraw money from my account from an ATM." → 20
+
+5. verify_my_identity (ID 69) vs why_verify_identity (ID 74) vs unable_to_verify_identity (ID 68):
+   verify_my_identity = want to verify/complete verification
+   why_verify_identity = asking why verification is needed
+   unable_to_verify_identity = having trouble completing verification
+   - Query: "If I'm getting my identity verified, what all do I need?" → 69
+   - Query: "I do not feel comfortable verifying my identity." → 74
+   - Query: "My identity wasn't verified" → 68
+
+6. card_payment_wrong_exchange_rate (ID 17) vs wrong_exchange_rate_for_cash_withdrawal (ID 76) vs exchange_rate (ID 32):
+   card_payment_wrong_exchange_rate = wrong rate used for CARD payment
+   wrong_exchange_rate_for_cash_withdrawal = wrong rate used for CASH withdrawal
+   exchange_rate = asking about current/general exchange rates
+   - Query: "I seem to have been charged to much for my holiday purchases, the exchange rate is wrong." → 17
+   - Query: "The exchange rate for foreign ATM currency is wrong." → 76
+   - Query: "How did you guys get your exchange rate?" → 32
+
+7. extra_charge_on_statement (ID 34) vs card_payment_fee_charged (ID 15):
+   extra_charge_on_statement = unexpected charge on statement
+   card_payment_fee_charged = fee charged for card payment
+   - Query: "I was overcharged one extra pound!" → 34
+   - Query: "There was an extra fee when I paid with my card, why was i charged this extra fee?" → 15
+
+8. getting_virtual_card (ID 40):
+   - Query: "Where do I have access to a virtual card?" → 40
+   - Query: "How can I receive a virtual card?" → 40
+
+
+Remember: Respond with ONLY the numeric ID, nothing else."""
+
+SYSTEM_PROMPT_BASIC = """You are a banking intent classifier. Classify the user's query into one of  77 banking intents (output is a single integer ID).
+
+IDs:
+
+0: activate_my_card
+1: age_limit
+2: apple_pay_or_google_pay
+3: atm_support
+4: automatic_top_up
+5: balance_not_updated_after_bank_transfer
+6: balance_not_updated_after_cheque_or_cash_deposit
+7: beneficiary_not_allowed
+8: cancel_transfer
+9: card_about_to_expire
+10: card_acceptance
+11: card_arrival
+12: card_delivery_estimate
+13: card_linking
+14: card_not_working
+15: card_payment_fee_charged
+16: card_payment_not_recognised
+17: card_payment_wrong_exchange_rate
+18: card_swallowed
+19: cash_withdrawal_charge
+20: cash_withdrawal_not_recognised
+21: change_pin
+22: compromised_card
+23: contactless_not_working
+24: country_support
+25: declined_card_payment
+26: declined_cash_withdrawal
+27: declined_transfer
+28: direct_debit_payment_not_recognised
+29: disposable_card_limits
+30: edit_personal_details
+31: exchange_charge
+32: exchange_rate
+33: exchange_via_app
+34: extra_charge_on_statement
+35: failed_transfer
+36: fiat_currency_support
+37: get_disposable_virtual_card
+38: get_physical_card
+39: getting_spare_card
+40: getting_virtual_card
+41: lost_or_stolen_card
+42: lost_or_stolen_phone
+43: order_physical_card
+44: passcode_forgotten
+45: pending_card_payment
+46: pending_cash_withdrawal
+47: pending_top_up
+48: pending_transfer
+49: pin_blocked
+50: receiving_money
+51: Refund_not_showing_up
+52: request_refund
+53: reverted_card_payment?
+54: supported_cards_and_currencies
+55: terminate_account
+56: top_up_by_bank_transfer_charge
+57: top_up_by_card_charge
+58: top_up_by_cash_or_cheque
+59: top_up_failed
+60: top_up_limits
+61: top_up_reverted
+62: topping_up_by_card
+63: transaction_charged_twice
+64: transfer_fee_charged
+65: transfer_into_account
+66: transfer_not_received_by_recipient
+67: transfer_timing
+68: unable_to_verify_identity
+69: verify_my_identity
+70: verify_source_of_funds
+71: verify_top_up
+72: virtual_card_not_working
+73: visa_or_mastercard
+74: why_verify_identity
+75: wrong_amount_of_cash_received
+76: wrong_exchange_rate_for_cash_withdrawal
+
+CRITICAL INSTRUCTIONS:
+1. Choose exactly one integer ID (0-76).
+2. Reply with ONLY that number. No words, no reasoning, no punctuation.
+Examples: 0, 1, 42
+
+Remember: Respond with ONLY the numeric ID, nothing else."""
 
 
 def load_conversations(input_path):
@@ -976,6 +1222,8 @@ def create_banking77_synthesis_config(
     num_samples: int = 100,
     base_url: str | None = None,
     api_key: str | None = None,
+    requests_per_minute: int | None = 500,
+    inference_max_new_tokens: int = 1024,
 ) -> dict:
     """
     Create a synthesis config for Banking77 classification task using the synthesis API.
@@ -992,6 +1240,8 @@ def create_banking77_synthesis_config(
         num_samples: Number of synthetic examples to generate (default: 100)
         base_url: Base URL for the synthesis API (default: None, uses environment)
         api_key: API key for authentication (default: None, uses environment)
+        requests_per_minute: Rate limit for API requests (default: 500, set to None to omit)
+        inference_max_new_tokens: Maximum tokens for model output (default: 1024, increase if hitting token limits)
     
     Returns:
         Dictionary containing the synthesis recipe config that can be sent to:
@@ -1050,6 +1300,14 @@ def create_banking77_synthesis_config(
         }
     
     # Create the synthesis config structure
+    inference_config = {
+        "inference_temperature": 1.0,
+        "inference_max_new_tokens": inference_max_new_tokens,
+    }
+    # Add requests_per_minute if provided
+    if requests_per_minute is not None:
+        inference_config["requests_per_minute"] = requests_per_minute
+    
     synthesis_config = {
         "type": "synthesize",
         "model_identifier": {
@@ -1057,10 +1315,7 @@ def create_banking77_synthesis_config(
             "model_name": "gpt-5-mini",  # Can be changed to other models
             "api_keys": api_keys  # Optional: API keys for the hosted model
         },
-        "inference_config": {
-            "inference_temperature": 1.0,
-            "inference_max_new_tokens": 512
-        },
+        "inference_config": inference_config,
         "synthesis_config": {
             "synthesis_type": "general",
             "synthesis_config": {
@@ -1203,7 +1458,166 @@ Generate {num_samples} diverse training examples covering all 77 labels."""
         },
         "inference_config": {
             "inference_temperature": 1.0,
-            "inference_max_new_tokens": 512
+            "inference_max_new_tokens": 512,
+            "requests_per_minute": 500
         }
     }
+
+
+def convert_class_names_to_ids(input_path, output_path):
+    """
+    Convert a JSONL file where assistant responses are class names to one where 
+    assistant responses are class IDs.
+    
+    Args:
+        input_path: Path to input JSONL file with class names as assistant responses
+        output_path: Path to output JSONL file with class IDs as assistant responses
+        
+    Example:
+        Input: {"messages": [{"role": "user", "content": "..."}, 
+                            {"role": "assistant", "content": "activate_my_card"}]}
+        Output: {"messages": [{"role": "user", "content": "..."}, 
+                             {"role": "assistant", "content": "0"}]}
+    """
+    # Create reverse mapping from label name to ID
+    label_name_to_id = {v: k for k, v in LABEL_NAMES_MAP.items()}
+    
+    converted_count = 0
+    skipped_count = 0
+    
+    with open(input_path, 'r', encoding='utf-8') as infile, \
+         open(output_path, 'w', encoding='utf-8') as outfile:
+        
+        for line_num, line in enumerate(infile, 1):
+            line = line.strip()
+            if not line:
+                continue
+                
+            try:
+                entry = json.loads(line)
+                
+                # Find all assistant messages and convert class names to IDs
+                if 'messages' in entry:
+                    messages = entry['messages']
+                    entry_converted = False
+                    for msg in messages:
+                        if msg.get('role') == 'assistant':
+                            class_name = msg.get('content', '').strip()
+                            
+                            # Check if it's already an ID (numeric string)
+                            if class_name.isdigit():
+                                # Already an ID, keep as is
+                                continue
+                            
+                            # Convert class name to ID
+                            class_id = label_name_to_id.get(class_name)
+                            if class_id is not None:
+                                msg['content'] = str(class_id)
+                                entry_converted = True
+                            else:
+                                print(f"Warning: Class name '{class_name}' not found in LABEL_NAMES_MAP (line {line_num})")
+                                skipped_count += 1
+                    
+                    if entry_converted:
+                        converted_count += 1
+                
+                # Write the converted entry
+                outfile.write(json.dumps(entry, ensure_ascii=False) + '\n')
+                
+            except json.JSONDecodeError as e:
+                print(f"Error parsing JSON on line {line_num}: {e}")
+                skipped_count += 1
+                continue
+    
+    print(f"Conversion complete: {converted_count} entries converted, {skipped_count} skipped")
+    print(f"Output written to: {output_path}")
+
+
+def add_system_prompt_to_conversations(input_path, output_path, prompt_type='full'):
+    """
+    Add a system prompt to conversations in a JSONL file.
+    
+    Args:
+        input_path: Path to input JSONL file with conversations
+        output_path: Path to output JSONL file with system prompts added
+        prompt_type: Type of system prompt to add. Options:
+            - 'empty': Empty string
+            - 'basic': SYSTEM_PROMPT_BASIC
+            - 'full': SYSTEM_PROMPT (default)
+    
+    The function will:
+    - Add a system message at the beginning of each conversation's messages array
+    - If a system message already exists, it will be replaced with the specified prompt
+    - Preserves all other messages and metadata
+    
+    Example:
+        Input: {"messages": [{"role": "user", "content": "..."}, 
+                            {"role": "assistant", "content": "0"}]}
+        Output: {"messages": [{"role": "system", "content": SYSTEM_PROMPT}, 
+                              {"role": "user", "content": "..."}, 
+                              {"role": "assistant", "content": "0"}]}
+    """
+    # Select the system prompt based on type
+    if prompt_type == 'empty':
+        system_prompt = ""
+    elif prompt_type == 'basic':
+        system_prompt = SYSTEM_PROMPT_BASIC
+    elif prompt_type == 'full':
+        system_prompt = SYSTEM_PROMPT
+    else:
+        raise ValueError(f"Unknown prompt_type '{prompt_type}'. Use 'empty', 'basic', or 'full'.")
+    
+    processed_count = 0
+    skipped_count = 0
+    
+    with open(input_path, 'r', encoding='utf-8') as infile, \
+         open(output_path, 'w', encoding='utf-8') as outfile:
+        
+        for line_num, line in enumerate(infile, 1):
+            line = line.strip()
+            if not line:
+                continue
+                
+            try:
+                entry = json.loads(line)
+                
+                if 'messages' not in entry:
+                    print(f"Warning: Line {line_num} missing 'messages' field, skipping", file=sys.stderr)
+                    skipped_count += 1
+                    continue
+                
+                messages = entry['messages']
+                
+                # Check if there's already a system message
+                has_system = False
+                system_index = -1
+                for i, msg in enumerate(messages):
+                    if msg.get('role') == 'system':
+                        has_system = True
+                        system_index = i
+                        break
+                
+                # Add or replace system message
+                if has_system:
+                    # Replace existing system message
+                    messages[system_index] = {"role": "system", "content": system_prompt}
+                else:
+                    # Add system message at the beginning
+                    messages.insert(0, {"role": "system", "content": system_prompt})
+                
+                # Write the updated entry
+                outfile.write(json.dumps(entry, ensure_ascii=False) + '\n')
+                processed_count += 1
+                
+            except json.JSONDecodeError as e:
+                print(f"Error parsing JSON on line {line_num}: {e}", file=sys.stderr)
+                skipped_count += 1
+                continue
+            except Exception as e:
+                print(f"Error processing line {line_num}: {e}", file=sys.stderr)
+                skipped_count += 1
+                continue
+    
+    print(f"System prompt addition complete: {processed_count} entries processed, {skipped_count} skipped")
+    print(f"Output written to: {output_path}")
 

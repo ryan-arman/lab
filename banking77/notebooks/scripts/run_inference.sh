@@ -1,8 +1,8 @@
 #!/bin/bash
 
 #SBATCH --job-name=banking77_inference_qwen3_4b
-#SBATCH --gres=gpu:8
-#SBATCH --cpus-per-gpu=10
+#SBATCH --gres=gpu:4
+#SBATCH --cpus-per-gpu=2
 #SBATCH --mem-per-gpu=128G
 #SBATCH --output=/home/ryan/code/oumi/lab/banking77/notebooks/logs/banking77_inference_qwen3_4b_%j.log
 #SBATCH --error=/home/ryan/code/oumi/lab/banking77/notebooks/logs/banking77_inference_qwen3_4b_%j.err
