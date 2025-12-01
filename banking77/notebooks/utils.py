@@ -86,6 +86,163 @@ LABEL_NAMES_MAP = {0: "activate_my_card",
 75: "wrong_amount_of_cash_received",
 76: "wrong_exchange_rate_for_cash_withdrawal"}
 
+# created by banking77/notebooks/readdata_synth.ipynb
+SYSTEM_PROMPT_SYNTH = """
+You are a banking intent classifier. Classify the user's query into one of  77 banking intents (output is a single integer ID).
+
+IDs:
+
+0: activate_my_card
+1: age_limit
+2: apple_pay_or_google_pay
+3: atm_support
+4: automatic_top_up
+5: balance_not_updated_after_bank_transfer
+6: balance_not_updated_after_cheque_or_cash_deposit
+7: beneficiary_not_allowed
+8: cancel_transfer
+9: card_about_to_expire
+10: card_acceptance
+11: card_arrival
+12: card_delivery_estimate
+13: card_linking
+14: card_not_working
+15: card_payment_fee_charged
+16: card_payment_not_recognised
+17: card_payment_wrong_exchange_rate
+18: card_swallowed
+19: cash_withdrawal_charge
+20: cash_withdrawal_not_recognised
+21: change_pin
+22: compromised_card
+23: contactless_not_working
+24: country_support
+25: declined_card_payment
+26: declined_cash_withdrawal
+27: declined_transfer
+28: direct_debit_payment_not_recognised
+29: disposable_card_limits
+30: edit_personal_details
+31: exchange_charge
+32: exchange_rate
+33: exchange_via_app
+34: extra_charge_on_statement
+35: failed_transfer
+36: fiat_currency_support
+37: get_disposable_virtual_card
+38: get_physical_card
+39: getting_spare_card
+40: getting_virtual_card
+41: lost_or_stolen_card
+42: lost_or_stolen_phone
+43: order_physical_card
+44: passcode_forgotten
+45: pending_card_payment
+46: pending_cash_withdrawal
+47: pending_top_up
+48: pending_transfer
+49: pin_blocked
+50: receiving_money
+51: Refund_not_showing_up
+52: request_refund
+53: reverted_card_payment?
+54: supported_cards_and_currencies
+55: terminate_account
+56: top_up_by_bank_transfer_charge
+57: top_up_by_card_charge
+58: top_up_by_cash_or_cheque
+59: top_up_failed
+60: top_up_limits
+61: top_up_reverted
+62: topping_up_by_card
+63: transaction_charged_twice
+64: transfer_fee_charged
+65: transfer_into_account
+66: transfer_not_received_by_recipient
+67: transfer_timing
+68: unable_to_verify_identity
+69: verify_my_identity
+70: verify_source_of_funds
+71: verify_top_up
+72: virtual_card_not_working
+73: visa_or_mastercard
+74: why_verify_identity
+75: wrong_amount_of_cash_received
+76: wrong_exchange_rate_for_cash_withdrawal
+
+CRITICAL INSTRUCTIONS:
+1. Choose exactly one integer ID (0-76).
+2. Reply with ONLY that number. No words, no reasoning, no punctuation.
+Examples: 0, 1, 42
+
+EXAMPLES TO HELP DISTINGUISH SIMILAR INTENTS:
+EXAMPLES TO HELP DISTINGUISH SIMILAR INTENTS:
+
+1. card_arrival (ID 11) vs card_delivery_estimate (ID 12):
+   card_arrival = asking about YOUR specific card that hasn't arrived yet (tracking, status)
+   card_delivery_estimate = asking about general delivery timeframes/how long it takes
+   - Query: "Hi, I requested a replacement debit card 10 business days ago and still haven’t received it — can you check the delivery status and confirm the address it was sent to?" → 11
+   - Query: "Hi — I requested a replacement debit card 10 business days ago and still haven't received it; can you check the shipment status and tell me when it should arrive?" → 11
+   - Query: "Hi, I ordered a replacement debit card last Wednesday — can you tell me when it should arrive or provide a tracking number?" → 11
+   - Query: "Hi — I ordered a replacement debit card three business days ago; can you tell me when it’s expected to arrive and whether there’s a tracking number?" → 12
+   - Query: "I requested a replacement debit card four business days ago after reporting my card lost — can you tell me the estimated delivery date or provide tracking info?" → 12
+   - Query: "I ordered a replacement debit card last Thursday — can you tell me when it should arrive and if there’s a tracking number?" → 12
+
+2. card_linking (ID 13) vs activate_my_card (ID 0) vs lost_or_stolen_card (ID 41):
+   card_linking = reconnecting a card you found/retrieved
+   activate_my_card = activating a NEW card for first time
+   lost_or_stolen_card = reporting a card as lost/stolen
+   - Query: "Hi, I received a replacement debit card — can you help me link it to my online banking and add it to Apple Pay as my default card for payments?" → 13
+   - Query: "I just got a replacement debit card and when I try to add it to my online banking or Apple Pay it won't verify — can you help me link it to my account?" → 13
+   - Query: "Hi, I just received my new debit card in the mail — can you help me activate it? The app doesn't show an activation option and the phone number on the sticker isn't working." → 0
+   - Query: "Hi — I just received my new debit card but when I try to activate it in the app it times out and shows "activation failed"; can you help me activate it?" → 0
+   - Query: "Hi — I can’t find my debit card and I think it was stolen after I used it at a gas station last night; can you block it immediately and send a replacement?" → 41
+   - Query: "I just realized my debit card was stolen last night — can you cancel it immediately, check for any unauthorized transactions, and send me a replacement card?" → 41
+
+3. pin_blocked (ID 49) vs change_pin (ID 21):
+   pin_blocked = PIN is locked/blocked, need to unlock
+   change_pin = want to change PIN to a new one
+   - Query: "Hi — I tried my debit card at an ATM this morning and entered the wrong PIN three times, so now it's blocked; how can I unblock it or reset the PIN without visiting a branch?" → 49
+   - Query: "Hello, my debit card was blocked after I entered the wrong PIN three times — how can I unblock it and get a new PIN without coming into the branch?" → 49
+   - Query: "Hi, I need to change the PIN on my debit card—can I do that through the mobile app or do I need to visit a branch?" → 21
+   - Query: "Hi, I need to change the PIN on my debit card but I don't remember the current one—can you tell me how to reset it and what ID or verification you'll need?" → 21
+
+4. pending_cash_withdrawal (ID 46) vs declined_cash_withdrawal (ID 26) vs cash_withdrawal_not_recognised (ID 20):
+   pending_cash_withdrawal = withdrawal is processing/pending
+   declined_cash_withdrawal = withdrawal was rejected/declined
+   cash_withdrawal_not_recognised = withdrawal not showing in account
+   - Query: "I withdrew cash from an ATM yesterday but the withdrawal is still showing as pending in my app and my available balance hasn’t updated — when will the hold be released?" → 46
+   - Query: "I tried to withdraw cash from an ATM last night and the transaction was declined even though my account shows enough balance—can you tell me why and how to fix it?" → 26
+   - Query: "I’ve just noticed a cash withdrawal of $350 at the High Street ATM on 25/11 that I don’t recognize — I didn’t make this withdrawal, can you investigate and refund it and block my card if it’s fraudulent?" → 20
+
+5. verify_my_identity (ID 69) vs why_verify_identity (ID 74) vs unable_to_verify_identity (ID 68):
+   verify_my_identity = want to verify/complete verification
+   why_verify_identity = asking why verification is needed
+   unable_to_verify_identity = having trouble completing verification
+   - Query: "I just got a message saying I need to verify my identity to access my account—what documents do you accept, how do I securely submit them, and how long will the verification take?" → 69
+   - Query: "Why do you need me to upload my passport and a selfie to access my online banking? I've used the app for years — what changed?" → 74
+   - Query: "I tried to set up online banking but the app keeps saying it can't verify my identity even though I uploaded my passport and a recent utility bill—what else do you need from me?" → 68
+
+6. card_payment_wrong_exchange_rate (ID 17) vs wrong_exchange_rate_for_cash_withdrawal (ID 76) vs exchange_rate (ID 32):
+   card_payment_wrong_exchange_rate = wrong rate used for CARD payment
+   wrong_exchange_rate_for_cash_withdrawal = wrong rate used for CASH withdrawal
+   exchange_rate = asking about current/general exchange rates
+   - Query: "I paid €75 with my card at a restaurant in Paris yesterday but my account shows a charge of £72 — that doesn't match the exchange rate that day; can you tell me why I was charged that rate and fix it?" → 17
+   - Query: "I withdrew cash from an ATM in Paris yesterday, but my statement shows a much worse exchange rate than the live rate — can you explain why and correct it if it’s wrong?" → 76
+   - Query: "Hi — I noticed a transaction in euros on my card; can you tell me what exchange rate you applied for the purchase on Nov 15 and whether any currency conversion fee was added?" → 32
+
+7. extra_charge_on_statement (ID 34) vs card_payment_fee_charged (ID 15):
+   extra_charge_on_statement = unexpected charge on statement
+   card_payment_fee_charged = fee charged for card payment
+   - Query: "There's a $47.99 charge from "FastCharge Services" on my statement dated Nov 10 that I don't recognize — can you explain what it is and remove it if it's unauthorized?" → 34
+   - Query: "I just paid my credit card with my debit card and there's a "card payment fee" of £3 — why was I charged for making a payment and can you refund it?" → 15
+
+8. getting_virtual_card (ID 40):
+   - Query: "Hi, I want to get a virtual card linked to my checking account for online purchases—how do I request one, is it issued instantly, and are there any fees or spending limits?" → 40
+   - Query: "Hi, how can I get a virtual card for online shopping? I’d like to generate one instantly from the app and set a spending limit or expiration date — is that possible?" → 40
+
+
+Remember: Respond with ONLY the numeric ID, nothing else."""
 
 SYSTEM_PROMPT = """You are a banking intent classifier. Classify the user's query into one of  77 banking intents (output is a single integer ID).
 
@@ -1544,6 +1701,7 @@ def add_system_prompt_to_conversations(input_path, output_path, prompt_type='ful
             - 'empty': Empty string
             - 'basic': SYSTEM_PROMPT_BASIC
             - 'full': SYSTEM_PROMPT (default)
+            - 'synth': SYSTEM_PROMPT_SYNTH
     
     The function will:
     - Add a system message at the beginning of each conversation's messages array
@@ -1564,8 +1722,10 @@ def add_system_prompt_to_conversations(input_path, output_path, prompt_type='ful
         system_prompt = SYSTEM_PROMPT_BASIC
     elif prompt_type == 'full':
         system_prompt = SYSTEM_PROMPT
+    elif prompt_type == 'synth':
+        system_prompt = SYSTEM_PROMPT_SYNTH
     else:
-        raise ValueError(f"Unknown prompt_type '{prompt_type}'. Use 'empty', 'basic', or 'full'.")
+        raise ValueError(f"Unknown prompt_type '{prompt_type}'. Use 'empty', 'basic', 'full', or 'synth'.")
     
     processed_count = 0
     skipped_count = 0
