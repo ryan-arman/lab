@@ -8,7 +8,8 @@ Banking77 format:
         {"content": "...", "role": "system"},
         {"content": "...", "role": "user"},
         {"content": "...", "role": "assistant"}  # Optional
-    ]
+    ],
+    "metadata": {"label": "..."}  # Optional, preserved from input
 }
 
 Arxiv_abstract format:
@@ -24,7 +25,7 @@ Arxiv_abstract format:
 import json
 import sys
 from pathlib import Path
-from utils import SYSTEM_PROMPT, SYSTEM_PROMPT_BASIC
+from utils import SYSTEM_PROMPT, SYSTEM_PROMPT_BASIC, SYSTEM_PROMPT_SYNTH
 
 
 def convert_banking77_to_dict_format(input_file, output_file):
@@ -99,8 +100,12 @@ def convert_banking77_to_dict_format(input_file, output_file):
                         "request": request,
                     },
                     "metadata": {"label": response}
-
                 }
+                
+                # Preserve existing metadata from input if it exists
+                if 'metadata' in data:
+                    # Merge existing metadata with label, with label taking precedence
+                    output_data["metadata"] = {**data['metadata'], **output_data["metadata"]}
                 
                 # Write to output file
                 outfile.write(json.dumps(output_data, ensure_ascii=False) + '\n')
@@ -124,6 +129,10 @@ def convert_dict_to_banking77_format(input_file, output_file, system_prompt=None
         input_file: Path to input dict JSONL file
         output_file: Path to output banking77 JSONL file
         system_prompt: System prompt to use (defaults to SYSTEM_PROMPT from utils)
+    
+    Note:
+        Metadata from the input file is preserved in the output. The label is NOT
+        added as an assistant message, but kept in the metadata field.
     """
     if system_prompt is None:
         system_prompt = SYSTEM_PROMPT
@@ -174,27 +183,20 @@ def convert_dict_to_banking77_format(input_file, output_file, system_prompt=None
                     # Use the second part as user content (first part was the system prompt)
                     user_content = parts[1]
                 
-                # Get response from content.response or metadata.label
-                response = ""
-                if 'response' in content and content['response']:
-                    response = content['response']
-                elif 'metadata' in data and 'label' in data['metadata']:
-                    response = data['metadata']['label']
-                
                 # Reconstruct messages array using the specified system prompt
                 messages = [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_content}
                 ]
                 
-                # Add assistant message if response is not empty
-                if response:
-                    messages.append({"role": "assistant", "content": response})
-                
-                # Create banking77 format
+                # Create banking77 format with messages
                 output_data = {
                     "messages": messages
                 }
+                
+                # Preserve metadata from input if it exists
+                if 'metadata' in data:
+                    output_data["metadata"] = data['metadata']
                 
                 # Write to output file
                 outfile.write(json.dumps(output_data, ensure_ascii=False) + '\n')
@@ -215,11 +217,13 @@ if __name__ == "__main__":
         print("Usage: python convert_format.py <input_file> <output_file> [--reverse] [--system-prompt <prompt_type>]", file=sys.stderr)
         print("  Forward (default): Convert banking77 format to arxiv_abstract format", file=sys.stderr)
         print("  Reverse (--reverse): Convert arxiv_abstract format to banking77 format", file=sys.stderr)
-        print("  System prompt options: 'full' (default) or 'basic'", file=sys.stderr)
+        print("  System prompt options: 'full' (default), 'basic', 'synth', or 'empty'", file=sys.stderr)
         print("Examples:", file=sys.stderr)
         print("  python convert_format.py data/test.jsonl data/test_arxiv_format.jsonl", file=sys.stderr)
         print("  python convert_format.py data/test_arxiv_format.jsonl data/test.jsonl --reverse", file=sys.stderr)
         print("  python convert_format.py data/test_arxiv_format.jsonl data/test.jsonl --reverse --system-prompt basic", file=sys.stderr)
+        print("  python convert_format.py data/test_arxiv_format.jsonl data/test.jsonl --reverse --system-prompt synth", file=sys.stderr)
+        print("  python convert_format.py data/test_arxiv_format.jsonl data/test.jsonl --reverse --system-prompt empty", file=sys.stderr)
         sys.exit(1)
     
     input_file = sys.argv[1]
@@ -246,8 +250,12 @@ if __name__ == "__main__":
         selected_prompt = SYSTEM_PROMPT_BASIC
     elif system_prompt_type == 'full':
         selected_prompt = SYSTEM_PROMPT
+    elif system_prompt_type == 'synth':
+        selected_prompt = SYSTEM_PROMPT_SYNTH
+    elif system_prompt_type == 'empty':
+        selected_prompt = ""
     else:
-        print(f"Error: Unknown system prompt type '{system_prompt_type}'. Use 'full' or 'basic'.", file=sys.stderr)
+        print(f"Error: Unknown system prompt type '{system_prompt_type}'. Use 'full', 'basic', 'synth', or 'empty'.", file=sys.stderr)
         sys.exit(1)
     
     if reverse:

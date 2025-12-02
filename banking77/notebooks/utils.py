@@ -543,25 +543,38 @@ def measure_accuracy(inference_data):
     
     for idx, row in enumerate(inference_data):
         try:
-            # Extract predicted label from the last message content
-            content = row['messages'][-1]['content'].strip()
+            # Find the assistant message (last message with role 'assistant')
+            messages = row['messages']
+            assistant_content = None
+            for msg in reversed(messages):
+                if msg.get('role') == 'assistant':
+                    assistant_content = msg.get('content', '').strip()
+                    break
+            
+            if assistant_content is None:
+                raise ValueError("No assistant message found")
+            
             # Extract first integer from the response (handles cases where model adds reasoning)
-            match = re.search(r'\b(\d+)\b', content)
+            match = re.search(r'\b(\d+)\b', assistant_content)
             if match:
                 inference_class_label = int(match.group(1))
             else:
-                raise ValueError(f"No integer found in response: '{content[:50]}...'")
+                raise ValueError(f"No integer found in response: '{assistant_content[:50]}...'")
             
             # Extract ground truth label
             gt_label = row['metadata']['label']
-            if len(content) > 5:
-                print(f"idx: {idx}, gt_label: {gt_label}, inference_class_label: {inference_class_label}, content: {content}")
+            
+            # Convert both to int for comparison
+            gt_label_int = int(gt_label) if isinstance(gt_label, str) else int(gt_label)
             
             # Compare and count
-            if inference_class_label == gt_label:
+            if inference_class_label == gt_label_int:
                 correct += 1
             else:
                 incorrect_list.append((idx, inference_class_label, gt_label))
+                # Only print incorrect classifications with reasoning
+                if len(assistant_content) > 5:
+                    print(f"idx: {idx}, gt_label: {gt_label}, inference_class_label: {inference_class_label}, content: {assistant_content}")
             total += 1
             
         except (KeyError, ValueError, IndexError) as e:
@@ -1536,7 +1549,161 @@ def create_banking77_synthesis_config(
                             }
                         }
                     ],
-                    "passthrough_attributes": ["conversation"]
+                    "passthrough_attributes": ["conversation", "label"]
+                }
+            }
+        }
+    }
+    
+    return synthesis_config
+
+
+def create_banking77_synthesis_config_test_only(
+    num_samples: int = 100,
+    base_url: str | None = None,
+    api_key: str | None = None,
+    requests_per_minute: int | None = 500,
+    inference_max_new_tokens: int = 1024,
+) -> dict:
+    """
+    Create a synthesis config for Banking77 test split only.
+    
+    This generates test examples with:
+    - System message with classification instructions (SYSTEM_PROMPT)
+    - User query
+    - Assistant response with label ID
+    
+    This is similar to the training config but includes the full system prompt with
+    classification instructions, making it suitable for test/evaluation data.
+    
+    Args:
+        num_samples: Number of synthetic test examples to generate (default: 100)
+        base_url: Base URL for the synthesis API (default: None, uses environment)
+        api_key: API key for authentication (default: None, uses environment)
+        requests_per_minute: Rate limit for API requests (default: 500, set to None to omit)
+        inference_max_new_tokens: Maximum tokens for model output (default: 1024)
+    
+    Returns:
+        Dictionary containing the synthesis recipe config for test split generation
+    
+    Example:
+        >>> from utils import create_banking77_synthesis_config_test_only
+        >>> config = create_banking77_synthesis_config_test_only(num_samples=1000)
+    """
+    # Create label attribute values from LABEL_NAMES_MAP
+    num_labels = len(LABEL_NAMES_MAP)
+    uniform_rate = 1.0 / num_labels
+    
+    label_values = []
+    total_rate = 0.0
+    for i, (label_id, label_name) in enumerate(LABEL_NAMES_MAP.items()):
+        description = label_name.replace("_", " ").title()
+        
+        if i == num_labels - 1:
+            sample_rate = 1.0 - total_rate
+        else:
+            sample_rate = uniform_rate
+            total_rate += sample_rate
+        
+        label_values.append({
+            "id": str(label_id),
+            "name": label_name,
+            "description": f"Banking query about: {description}",
+            "sample_rate": sample_rate
+        })
+    
+    # Get OpenAI API key from environment if available
+    openai_api_key = os.environ.get("OPENAI_API_KEY")
+    api_keys = None
+    if openai_api_key:
+        api_keys = {
+            "openai": openai_api_key
+        }
+    
+    # Create the synthesis config structure
+    inference_config = {
+        "inference_temperature": 1.0,
+        "inference_max_new_tokens": inference_max_new_tokens,
+    }
+    if requests_per_minute is not None:
+        inference_config["requests_per_minute"] = requests_per_minute
+    
+    synthesis_config = {
+        "type": "synthesize",
+        "model_identifier": {
+            "model_type": "OPENAI_API",
+            "model_name": "gpt-5-mini",
+            "api_keys": api_keys
+        },
+        "inference_config": inference_config,
+        "synthesis_config": {
+            "synthesis_type": "general",
+            "synthesis_config": {
+                "num_samples": num_samples,
+                "strategy": "general",
+                "strategy_params": {
+                    "sampled_attributes": [
+                        {
+                            "id": "label",
+                            "name": "Banking Intent Label",
+                            "description": "The intent category for the banking query",
+                            "possible_values": label_values
+                        }
+                    ],
+                    "generated_attributes": [
+                        {
+                            "id": "user_query",
+                            "instruction_messages": [
+                                {
+                                    "role": "system",
+                                    "content": (
+                                        "You are generating realistic banking customer service queries. "
+                                        "Generate natural, conversational queries that a customer might ask "
+                                        "about banking services, card issues, transfers, payments, etc."
+                                    )
+                                },
+                                {
+                                    "role": "user",
+                                    "content": (
+                                        "Generate a realistic banking customer service query for the intent: "
+                                        "{label}\n\n"
+                                        "The query should be:\n"
+                                        "- Natural and conversational\n"
+                                        "- Specific to the banking intent\n"
+                                        "- Similar to real customer service interactions\n"
+                                        "- 1-3 sentences long\n\n"
+                                        "Generate only the customer query text, nothing else."
+                                    )
+                                }
+                            ]
+                        }
+                    ],
+                    "transformed_attributes": [
+                        {
+                            "id": "conversation",
+                            "transformation_strategy": {
+                                "type": "chat",
+                                "chat_transform": {
+                                    "messages": [
+                                        {
+                                            "role": "system",
+                                            "content": SYSTEM_PROMPT
+                                        },
+                                        {
+                                            "role": "user",
+                                            "content": "{user_query}"
+                                        },
+                                        {
+                                            "role": "assistant",
+                                            "content": "{label}"
+                                        }
+                                    ],
+                                    "metadata": {}
+                                }
+                            }
+                        }
+                    ],
+                    "passthrough_attributes": ["conversation", "label"]
                 }
             }
         }
